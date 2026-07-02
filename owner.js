@@ -18,8 +18,8 @@ module.exports = {
   },
 
   onStart: async function ({ api, event, message, usersData }) {
-    const ownerID = "61591725114394";
-    const body = `Hello 👋, I'm Xdragon as know Christian, the administrator of this chatbot. If you would like to get in touch, please feel free to contact me by clicking the button below.`;
+    const ownerID = "100086689301511";
+    const body = `Hello 👋, I'm VincentSensei, the administrator of this chatbot. If you would like to get in touch, please feel free to contact me by clicking the button below.`;
 
     try {
       if (typeof api.sendButtons === "function") {
