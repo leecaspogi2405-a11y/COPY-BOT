@@ -21,7 +21,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "2.0",
+		version: "2.1",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock Grow A Garden from public Telegram channel",
@@ -34,7 +34,7 @@ module.exports = {
 		const threadID = event.threadID;
 
 		if (body === "on") {
-			activeSessions.set(threadID, { enabled: true });
+			activeSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
 			if (!pollTimer) startPolling(api);
 			return message.reply("✅ Auto stock from GAG2 enabled!");
 		}
@@ -64,9 +64,10 @@ module.exports = {
 			}
 			
 			if (hasAlerts) {
+				const { notifyBody, mentions } = buildNotifyMsg(formatted, event.participantIDs || []);
 				return message.reply({
-					body: formatted,
-					mentions: [{ tag: "@everyone", id: "" }]
+					body: notifyBody,
+					mentions: mentions
 				});
 			} else {
 				return message.reply(formatted);
@@ -226,6 +227,32 @@ function getAlerts(text) {
 	return uniqueAlerts.length > 0 ? "@everyone\n" + uniqueAlerts.join('\n') + '\n\n' : "";
 }
 
+function buildNotifyMsg(baseText, participantIDs) {
+	let body = baseText;
+	let mentions = [];
+	let bodyLength = body.length;
+	let lengthAllUser = participantIDs.length;
+	let i = 0;
+
+	for (const uid of participantIDs) {
+		let fromIndex = 0;
+		if (bodyLength < lengthAllUser) {
+			body += body[bodyLength - 1];
+			bodyLength++;
+		}
+		if (body.slice(0, i).lastIndexOf(body[i]) != -1) {
+			fromIndex = i;
+		}
+		mentions.push({
+			tag: body[i],
+			id: uid,
+			fromIndex
+		});
+		i++;
+	}
+	return { notifyBody: body, mentions };
+}
+
 function startPolling(api) {
 	if (pollTimer) return;
 	console.log("[TGStock] Started polling Telegram channel...");
@@ -253,9 +280,12 @@ function startPolling(api) {
 						}
 						
 						if (hasAlerts) {
+							const pIDs = session.participantIDs || [];
+							const { notifyBody, mentions } = buildNotifyMsg(formatted, pIDs);
+							
 							api.sendMessage({
-								body: formatted,
-								mentions: [{ tag: "@everyone", id: "" }]
+								body: notifyBody,
+								mentions: mentions
 							}, threadID);
 						} else {
 							api.sendMessage(formatted, threadID);
