@@ -15,7 +15,8 @@ const TARGET_ITEMS = [
 	"Sun Bloom",
 	"Super Watering Can",
 	"Super Sprinkler",
-	"Legendary Sprinkler"
+	"Legendary Sprinkler",
+    "Rare Sprinkler"
 ];
 
 module.exports = {
