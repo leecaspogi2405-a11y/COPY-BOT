@@ -13,21 +13,15 @@ const TARGET_ITEMS = [
 	"Moon Bloom",
 	"Hypno Bloom",
 	"Sun Bloom",
-	"Mushroom",
-	"Bamboo",
 	"Super Watering Can",
 	"Super Sprinkler",
-	"Legendary Sprinkler",
-	"Invisible Mushroom",
-	"Shrink Mushroom",
-	"Jump Mushroom",
-	"Speed Mushroom"
+	"Legendary Sprinkler"
 ];
 
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "1.9",
+		version: "2.0",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock Grow A Garden from public Telegram channel",
@@ -72,7 +66,7 @@ module.exports = {
 			if (hasAlerts) {
 				return message.reply({
 					body: formatted,
-					mentions: [{ tag: "@everyone", id: threadID }]
+					mentions: [{ tag: "@everyone", id: "" }]
 				});
 			} else {
 				return message.reply(formatted);
@@ -261,7 +255,7 @@ function startPolling(api) {
 						if (hasAlerts) {
 							api.sendMessage({
 								body: formatted,
-								mentions: [{ tag: "@everyone", id: threadID }]
+								mentions: [{ tag: "@everyone", id: "" }]
 							}, threadID);
 						} else {
 							api.sendMessage(formatted, threadID);
