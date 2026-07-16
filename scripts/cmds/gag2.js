@@ -8,7 +8,7 @@ const lastSentHash = new Map();
 
 const TARGET_ITEMS = [
 	"Dragon's Breath",
-	"Venum Spitter",
+	"Venom Spitter",
 	"Star Fruit",
 	"Moon Bloom",
 	"Hypno Bloom",
