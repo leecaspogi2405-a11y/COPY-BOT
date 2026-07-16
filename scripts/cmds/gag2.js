@@ -14,13 +14,20 @@ const TARGET_ITEMS = [
 	"Hypno Bloom",
 	"Sun Bloom",
 	"Mushroom",
-	"Bamboo"
+	"Bamboo",
+	"Super Watering Can",
+	"Super Sprinkler",
+	"Legendary Sprinkler",
+	"Invisible Mushroom",
+	"Shrink Mushroom",
+	"Jump Mushroom",
+	"Speed Mushroom"
 ];
 
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "1.7",
+		version: "1.9",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock Grow A Garden from public Telegram channel",
@@ -207,18 +214,22 @@ function getAlerts(text) {
 	const lines = text.split('\n');
 
 	for (const line of lines) {
+		if (!line.includes(':')) continue;
+
+		let realItemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
+
 		for (const item of TARGET_ITEMS) {
-			if (line.toLowerCase().includes(item.toLowerCase())) {
-				// Captures the number properly whether it is formatted as ": x7", "x7", or just ": 7"
-				const qtyMatch = line.match(/:\s*x?(\d+)/i) || line.match(/x(\d+)/i);
+			if (realItemName.toLowerCase() === item.toLowerCase()) {
+				const qtyMatch = line.match(/:\s*x?(\d+)/i);
 				const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
-				alerts.push(`@everyone ${pcs} ${item} on Stock!`);
+				alerts.push(`${pcs} ${realItemName} on Stock!`);
+				break;
 			}
 		}
 	}
 
 	const uniqueAlerts = [...new Set(alerts)];
-	return uniqueAlerts.length > 0 ? uniqueAlerts.join('\n') + '\n\n' : "";
+	return uniqueAlerts.length > 0 ? "@everyone\n" + uniqueAlerts.join('\n') + '\n\n' : "";
 }
 
 function startPolling(api) {
