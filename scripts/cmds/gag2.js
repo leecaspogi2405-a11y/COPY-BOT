@@ -6,11 +6,22 @@ let pollTimer = null;
 const activeSessions = new Map();
 const lastSentHash = new Map();
 
+const TARGET_ITEMS = [
+	"Dragon Breath",
+	"Venum Spitter",
+	"Star Fruit",
+	"Moon Bloom",
+	"Hypno Bloom",
+	"Sun Bloom",
+	"Mushroom",
+	"Bamboo"
+];
+
 module.exports = {
 	config: {
 		name: "gag2stock",
 		version: "1.6",
-		author: "Vincent",
+		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock Grow A Garden from public Telegram channel",
 		category: "stock",
@@ -39,7 +50,15 @@ module.exports = {
 		if (body === "now" || body === "") {
 			const stockMsg = await fetchLatestMessage();
 			if (!stockMsg) return message.reply("❌ Could not fetch stock!");
-			return message.reply(formatMessage(stockMsg));
+			
+			let formatted = formatMessage(stockMsg);
+			if (stockMsg.type === 'stock') {
+				const alerts = getAlerts(stockMsg.text);
+				if (alerts) {
+					formatted = alerts + formatted;
+				}
+			}
+			return message.reply(formatted);
 		}
 
 		message.reply("❌ Commands: on, off, now");
@@ -171,6 +190,25 @@ function formatMessage(data) {
 	return out;
 }
 
+function getAlerts(text) {
+	if (!text) return "";
+	const alerts = [];
+	const lines = text.split('\n');
+
+	for (const line of lines) {
+		for (const item of TARGET_ITEMS) {
+			if (line.toLowerCase().includes(item.toLowerCase())) {
+				const qtyMatch = line.match(/\b(\d+)\b/);
+				const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
+				alerts.push(`@everyone ${pcs} ${item} on Stock!`);
+			}
+		}
+	}
+
+	const uniqueAlerts = [...new Set(alerts)];
+	return uniqueAlerts.length > 0 ? uniqueAlerts.join('\n') + '\n\n' : "";
+}
+
 function startPolling(api) {
 	if (pollTimer) return;
 	console.log("[TGStock] Started polling Telegram channel...");
@@ -179,16 +217,25 @@ function startPolling(api) {
 		const msg = await fetchLatestMessage();
 		if (msg) {
 			const hash = JSON.stringify({ id: msg.id, type: msg.type });
-			const formatted = formatMessage(msg);
+			
 			for (const [threadID, session] of activeSessions.entries()) {
 				if (session.enabled) {
 					const lastHash = lastSentHash.get(threadID);
 					if (lastHash !== hash) {
 						lastSentHash.set(threadID, hash);
+						
+						let formatted = formatMessage(msg);
+						if (msg.type === 'stock') {
+							const alerts = getAlerts(msg.text);
+							if (alerts) {
+								formatted = alerts + formatted;
+							}
+						}
+						
 						api.sendMessage(formatted, threadID);
 					}
 				}
 			}
 		}
 	}, 10000);
-                 }
+}
