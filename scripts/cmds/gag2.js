@@ -16,13 +16,13 @@ const TARGET_ITEMS = [
 	"Super Watering Can",
 	"Super Sprinkler",
 	"Legendary Sprinkler",
-    "Rare Sprinkler"
+	"Rare Sprinkler"
 ];
 
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "2.1",
+		version: "2.2",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock Grow A Garden from public Telegram channel",
@@ -65,9 +65,9 @@ module.exports = {
 			}
 			
 			if (hasAlerts) {
-				const { notifyBody, mentions } = buildNotifyMsg(formatted, event.participantIDs || []);
+				const mentions = buildMentions(event.participantIDs || []);
 				return message.reply({
-					body: notifyBody,
+					body: formatted,
 					mentions: mentions
 				});
 			} else {
@@ -225,33 +225,20 @@ function getAlerts(text) {
 	}
 
 	const uniqueAlerts = [...new Set(alerts)];
+	// This keeps the @everyone string intact at the very top for highlighting
 	return uniqueAlerts.length > 0 ? "@everyone\n" + uniqueAlerts.join('\n') + '\n\n' : "";
 }
 
-function buildNotifyMsg(baseText, participantIDs) {
-	let body = baseText;
+// Maps all users to the exact string "@everyone" so nothing else gets highlighted
+function buildMentions(participantIDs) {
 	let mentions = [];
-	let bodyLength = body.length;
-	let lengthAllUser = participantIDs.length;
-	let i = 0;
-
 	for (const uid of participantIDs) {
-		let fromIndex = 0;
-		if (bodyLength < lengthAllUser) {
-			body += body[bodyLength - 1];
-			bodyLength++;
-		}
-		if (body.slice(0, i).lastIndexOf(body[i]) != -1) {
-			fromIndex = i;
-		}
 		mentions.push({
-			tag: body[i],
-			id: uid,
-			fromIndex
+			tag: "@everyone",
+			id: uid
 		});
-		i++;
 	}
-	return { notifyBody: body, mentions };
+	return mentions;
 }
 
 function startPolling(api) {
@@ -281,11 +268,10 @@ function startPolling(api) {
 						}
 						
 						if (hasAlerts) {
-							const pIDs = session.participantIDs || [];
-							const { notifyBody, mentions } = buildNotifyMsg(formatted, pIDs);
+							const mentions = buildMentions(session.participantIDs || []);
 							
 							api.sendMessage({
-								body: notifyBody,
+								body: formatted,
 								mentions: mentions
 							}, threadID);
 						} else {
