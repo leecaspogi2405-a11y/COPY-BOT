@@ -20,7 +20,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "1.6",
+		version: "1.7",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock Grow A Garden from public Telegram channel",
@@ -52,13 +52,24 @@ module.exports = {
 			if (!stockMsg) return message.reply("❌ Could not fetch stock!");
 			
 			let formatted = formatMessage(stockMsg);
+			let hasAlerts = false;
+
 			if (stockMsg.type === 'stock') {
 				const alerts = getAlerts(stockMsg.text);
 				if (alerts) {
 					formatted = alerts + formatted;
+					hasAlerts = true;
 				}
 			}
-			return message.reply(formatted);
+			
+			if (hasAlerts) {
+				return message.reply({
+					body: formatted,
+					mentions: [{ tag: "@everyone", id: threadID }]
+				});
+			} else {
+				return message.reply(formatted);
+			}
 		}
 
 		message.reply("❌ Commands: on, off, now");
@@ -198,7 +209,8 @@ function getAlerts(text) {
 	for (const line of lines) {
 		for (const item of TARGET_ITEMS) {
 			if (line.toLowerCase().includes(item.toLowerCase())) {
-				const qtyMatch = line.match(/\b(\d+)\b/);
+				// Captures the number properly whether it is formatted as ": x7", "x7", or just ": 7"
+				const qtyMatch = line.match(/:\s*x?(\d+)/i) || line.match(/x(\d+)/i);
 				const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
 				alerts.push(`@everyone ${pcs} ${item} on Stock!`);
 			}
@@ -225,14 +237,24 @@ function startPolling(api) {
 						lastSentHash.set(threadID, hash);
 						
 						let formatted = formatMessage(msg);
+						let hasAlerts = false;
+
 						if (msg.type === 'stock') {
 							const alerts = getAlerts(msg.text);
 							if (alerts) {
 								formatted = alerts + formatted;
+								hasAlerts = true;
 							}
 						}
 						
-						api.sendMessage(formatted, threadID);
+						if (hasAlerts) {
+							api.sendMessage({
+								body: formatted,
+								mentions: [{ tag: "@everyone", id: threadID }]
+							}, threadID);
+						} else {
+							api.sendMessage(formatted, threadID);
+						}
 					}
 				}
 			}
