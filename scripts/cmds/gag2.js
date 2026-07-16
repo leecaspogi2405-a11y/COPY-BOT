@@ -16,7 +16,10 @@ const TARGET_ITEMS = [
 	"Super Watering Can",
 	"Super Sprinkler",
 	"Legendary Sprinkler",
-	"Rare Sprinkler"
+	"Rare Sprinkler",
+	"Venus Fly Trap",
+	"Pomegranate",
+	"Sunflower"
 ];
 
 module.exports = {
@@ -225,11 +228,9 @@ function getAlerts(text) {
 	}
 
 	const uniqueAlerts = [...new Set(alerts)];
-	// This keeps the @everyone string intact at the very top for highlighting
 	return uniqueAlerts.length > 0 ? "@everyone\n" + uniqueAlerts.join('\n') + '\n\n' : "";
 }
 
-// Maps all users to the exact string "@everyone" so nothing else gets highlighted
 function buildMentions(participantIDs) {
 	let mentions = [];
 	for (const uid of participantIDs) {
