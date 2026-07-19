@@ -7,12 +7,12 @@ let pollTimer = null;
 const activeSessions = new Map();
 const lastSentHash = new Map();
 
-// Updated with your exact lineup + missing items from your log
+// Updated with your exact lineup + corrected items
 const ALL_GAME_ITEMS = {
 	"Seed 🌱": [
 		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Bamboo", "Corn", "Banana", 
 		"Apple", "Grape", "Pineapple", "Sun Bloom", "Poison Apple", "Coconut", "Mango", 
-		"Cactus", "Cherry", "Green Bean", "Acorn", "Venom Spitter", "Venum Spitter", "Mushroom", 
+		"Cactus", "Cherry", "Green Bean", "Acorn", "Venom Spitter", "Mushroom", 
 		"Dragon's Breath", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Fire Fern"
 	],
 	"Gear ⚙️": [
@@ -27,8 +27,8 @@ const ALL_GAME_ITEMS = {
 		"Seesaw Crate", "Conveyor Crate", "Boombox Crate", "Teleporter Pad Crate", "Fence Crate"
 	],
 	"Moon & Event 🌙": [
-		"Gold Moon", "Red Moon", "Blue Moon", "Blood Moon",
-		"Sun Burst", "Rain", "Rainbow", "Meteor Shower", "Snow"
+		"Gold Moon", "Blood Moon", "Sun Burst", "Rain", 
+		"Rainbow", "Meteor", "Snow", "Aurora", "Snow Fall"
 	]
 };
 
@@ -49,7 +49,7 @@ let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
 const TARGET_ITEMS = [
-	"Dragon's Breath", "Venum Spitter", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
+	"Dragon's Breath", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
 	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
 	"Mushroom", "Cherry", "Fire Fern", "Basic Pot", "Strawberry Sniper", "Owner Door Crate",
 	"Teleporter Pad Crate", "Fence Crate"
@@ -58,7 +58,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.0",
+		version: "5.1",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock & Last seen tracker for Grow A Garden",
