@@ -12,7 +12,7 @@ const ALL_GAME_ITEMS = {
 		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Bamboo", "Corn", "Banana", 
 		"Apple", "Grape", "Pineapple", "Sun Bloom", "Poison Apple", "Coconut", "Mango", 
 		"Cactus", "Cherry", "Green Bean", "Acorn", "Venom Spitter", "Mushroom", 
-		"Dragon's Breath", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Fire Fern"
+		"Dragon's Breath", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Fire Fern", "Sunflower"
 	],
 	"Gear ⚙️": [
 		"Common Watering Can", "Common Sprinkler", "Uncommon Sprinkler", "Jump Mushroom", 
@@ -43,20 +43,23 @@ for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
 let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
+// Added missing items for notification pings
 const TARGET_ITEMS = [
 	"Dragon's Breath", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
 	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
 	"Mushroom", "Cherry", "Fire Fern", "Basic Pot", "Strawberry Sniper", "Owner Door Crate",
-	"Teleporter Pad Crate", "Fence Crate"
+	"Teleporter Pad Crate", "Fence Crate", 
+	"Sunflower", "Goldmoon", "Megamoon", "Bloodmoon", "Aurora", "Rainbow", "Meteor", 
+	"Rainbowmoon", "Sunburst", "Snowfall"
 ];
 
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.4",
+		version: "5.5",
 		author: "Dev Xdragon",
 		role: 1,
-		description: "Auto stock & Last seen tracker for Grow A Garden",
+		description: "Auto stock & Last seen tracker with real history tracking",
 		category: "stock",
 		guide: "{pn} on - Enable auto stock\n{pn} off - Disable auto stock\n{pn} now - View live stock & last seen dashboard"
 	},
@@ -66,7 +69,8 @@ module.exports = {
 		const threadID = event.threadID;
 
 		if (!isDatabaseInitialized) {
-			await updateChannelData();
+			// Perform a deep history scan on first load to get the REAL last seen times
+			await updateChannelData(true); 
 			isDatabaseInitialized = true;
 		}
 
@@ -86,7 +90,7 @@ module.exports = {
 		}
 
 		if (body === "now" || body === "") {
-			const latestMsg = await updateChannelData();
+			const latestMsg = await updateChannelData(false);
 			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram! Please try again in a moment.");
 			
 			// Send message 1 (Stock), then message 2 (Last Seen)
@@ -98,53 +102,81 @@ module.exports = {
 	}
 };
 
-async function fetchChannelHistory() {
-	try {
-		const res = await axios.get(`https://t.me/s/${TELEGRAM_CHANNEL}`, {
-			headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-			timeout: 15000
-		});
+// Fetches channel history. Uses pagination to fetch OLD messages if deepScan = true
+async function fetchChannelHistory(pages = 1) {
+	const allMessages = [];
+	let beforeId = null;
 
-		const html = res.data;
-		const messages = [];
-		// More reliable regex to catch the specific Telegram Web HTML structure
-		const msgRegex = /<div class="tgme_widget_message[^>]+data-post="([^"]+)"[\s\S]*?<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>[\s\S]*?<time datetime="([^"]+)"/g;
+	for (let p = 0; p < pages; p++) {
+		let url = `https://t.me/s/${TELEGRAM_CHANNEL}`;
+		if (beforeId) url += `?before=${beforeId}`;
 
-		let match;
-		while ((match = msgRegex.exec(html)) !== null) {
-			const postId = match[1];
-			const id = parseInt(postId.split('/')[1]) || 0;
-			const rawHtml = match[2];
-			const timestamp = new Date(match[3]).getTime();
+		try {
+			const res = await axios.get(url, {
+				headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+				timeout: 15000
+			});
 
-			let text = rawHtml
-				.replace(/<br\s*\/?>/gi, '\n')
-				.replace(/<[^>]+>/g, '')
-				.replace(/`Copyright[\s\S]*?`/g, '')
-				.replace(/@\w+/g, '')
-				.replace(/&nbsp;/gi, ' ')
-				.replace(/&gt;/gi, '>')
-				.replace(/&lt;/gi, '<')
-				.replace(/&#39;/gi, "'")
-				.replace(/&#34;/gi, '"')
-				.replace(/&amp;/gi, '&')
-				.replace(/\u00A0/g, ' ')
-				.replace(/\n{2,}/g, '\n')
-				.trim();
+			const html = res.data;
+			const msgRegex = /<div class="tgme_widget_message[^>]+data-post="([^"]+)"[\s\S]*?<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>[\s\S]*?<time datetime="([^"]+)"/g;
 
-			if (text) messages.push({ id, text, timestamp });
+			let match;
+			let lowestId = Infinity;
+			let foundAny = false;
+
+			while ((match = msgRegex.exec(html)) !== null) {
+				const postId = match[1];
+				const id = parseInt(postId.split('/')[1]) || 0;
+				const rawHtml = match[2];
+				const timestamp = new Date(match[3]).getTime();
+
+				if (id < lowestId && id > 0) lowestId = id;
+				foundAny = true;
+
+				let text = rawHtml
+					.replace(/<br\s*\/?>/gi, '\n')
+					.replace(/<[^>]+>/g, '')
+					.replace(/`Copyright[\s\S]*?`/g, '')
+					.replace(/@\w+/g, '')
+					.replace(/&nbsp;/gi, ' ')
+					.replace(/&gt;/gi, '>')
+					.replace(/&lt;/gi, '<')
+					.replace(/&#39;/gi, "'")
+					.replace(/&#34;/gi, '"')
+					.replace(/&amp;/gi, '&')
+					.replace(/\u00A0/g, ' ')
+					.replace(/\n{2,}/g, '\n')
+					.trim();
+
+				if (text) allMessages.push({ id, text, timestamp });
+			}
+
+			if (!foundAny) break;
+			beforeId = lowestId;
+		} catch (e) {
+			console.error("[TGStock] Error fetching channel history:", e.message);
+			break;
 		}
-        
-		messages.sort((a, b) => a.id - b.id);
-		return messages;
-	} catch (e) {
-		console.error("[TGStock] Error fetching channel history:", e.message);
-		return [];
 	}
+	
+	// Filter duplicates and sort chronologically
+	const uniqueMessages = [];
+	const seenIds = new Set();
+	for (const m of allMessages) {
+		if (!seenIds.has(m.id)) {
+			seenIds.add(m.id);
+			uniqueMessages.push(m);
+		}
+	}
+
+	uniqueMessages.sort((a, b) => a.id - b.id);
+	return uniqueMessages;
 }
 
-async function updateChannelData() {
-	const messages = await fetchChannelHistory();
+async function updateChannelData(isInit = false) {
+	// Fetch up to 10 pages on initialization (~200 historical messages) to get accurate old timestamps
+	const pagesToFetch = isInit ? 10 : 1;
+	const messages = await fetchChannelHistory(pagesToFetch);
 	if (!messages || messages.length === 0) return null;
 
 	let latestStock = null;
@@ -203,7 +235,6 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 		if (upperLine.includes('SEED SHOP')) currentCategory = 'Seed 🌱';
 		else if (upperLine.includes('GEAR SHOP')) currentCategory = 'Gear ⚙️';
 		else if (upperLine.includes('CRATE SHOP')) currentCategory = 'Crate 📦';
-		// Strict check to prevent matching "Moon Bloom" as the Moon category header
 		else if (upperLine.includes('MOON:') || upperLine.includes('EVENT:') || upperLine.includes('WEATHER UPDATE')) {
 			currentCategory = 'Moon & Weather 🌙';
 		}
@@ -247,6 +278,13 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 	}
 }
 
+// Converts timestamp into Exact Date format (e.g. Oct 20, 3:05 PM)
+function formatExactDate(ms) {
+	if (ms <= 0) return "";
+	const d = new Date(ms);
+	return d.toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+}
+
 function getTimeAgo(ms) {
 	if (ms <= 0) return "Never Seen";
 	
@@ -271,24 +309,37 @@ function getTimeAgo(ms) {
 	return `${min} Minute${min !== 1 ? 's' : ''} ago`;
 }
 
-function getAlerts(text) {
-	if (!text) return "";
+function getAlerts(msg) {
+	if (!msg || !msg.text) return "";
 	const alerts = [];
-	const lines = text.split('\n');
+	const lines = msg.text.split('\n');
+
+	// Sort TARGET_ITEMS by length descending to prevent substring errors (e.g., Rainbowmoon matching Rainbow first)
+	const sortedTargets = [...TARGET_ITEMS].sort((a, b) => b.length - a.length);
 
 	for (const line of lines) {
-		if (!line.includes(':')) continue;
-		let realItemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
+		const upperLine = line.toUpperCase();
+		const isWeatherLine = msg.type === 'weather' || upperLine.includes('MOON:') || upperLine.includes('EVENT:');
+		
+		if (!line.includes(':') && !isWeatherLine) continue;
 
-		for (const item of TARGET_ITEMS) {
-			if (realItemName.toLowerCase() === item.toLowerCase()) {
-				const qtyMatch = line.match(/:\s*x?(\d+)/i);
-				const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
-				alerts.push(`${pcs} ${realItemName} on Stock!`);
-				break;
+		for (const item of sortedTargets) {
+			const normalizedTarget = item.toLowerCase().replace(/[\s-]/g, '');
+			const normalizedLine = line.toLowerCase().replace(/[\s-]/g, '');
+
+			if (normalizedLine.includes(normalizedTarget)) {
+				if (isWeatherLine) {
+					alerts.push(`⚠️ Active Event/Weather: ${item}!`);
+				} else if (line.includes(':')) {
+					const qtyMatch = line.match(/:\s*x?(\d+)/i);
+					const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
+					alerts.push(`📦 ${pcs} ${item} on Stock!`);
+				}
+				break; // Stop checking other targets if one already matched this line
 			}
 		}
 	}
+	
 	const uniqueAlerts = [...new Set(alerts)];
 	return uniqueAlerts.length > 0 ? "@everyone\n" + uniqueAlerts.join('\n') + '\n\n' : "";
 }
@@ -333,6 +384,7 @@ function buildLastSeenMessage() {
 		out += `\n【 ${category} 】\n`;
 		for (const itemName of itemsList) {
 			const timestamp = lastSeenDB[category][itemName];
+			
 			if (currentStockItems.has(itemName)) {
 				if (category === "Moon & Weather 🌙") {
 					out += `✅ ${itemName}: Active\n`;
@@ -342,7 +394,9 @@ function buildLastSeenMessage() {
 			} else if (timestamp === 0) {
 				out += `❌ ${itemName}: Never Seen\n`;
 			} else {
-				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)}\n`;
+				// ADDED: Appending Exact Timestamp Details here
+				const exactDateText = formatExactDate(timestamp);
+				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)} (${exactDateText})\n`;
 			}
 		}
 	}
@@ -356,12 +410,14 @@ function sendUpdates(api, threadID, msg, participantIDs) {
 	let msg1 = "";
 	let hasAlerts = false;
 	
+	// Generate Alerts regardless of whether it's stock or weather
+	const alerts = getAlerts(msg);
+	if (alerts) {
+		msg1 += alerts;
+		hasAlerts = true;
+	}
+
 	if (msg.type === 'stock') {
-		const alerts = getAlerts(msg.text);
-		if (alerts) {
-			msg1 += alerts;
-			hasAlerts = true;
-		}
 		msg1 += formatRawStockMsg(msg);
 	} else if (msg.type === 'weather') {
 		msg1 += "🌦️ WEATHER UPDATE 🌦️\n\n" + formatRawStockMsg(msg);
@@ -384,7 +440,7 @@ function startPolling(api) {
 	console.log("[TGStock] Started polling Telegram channel...");
 
 	pollTimer = setInterval(async () => {
-		const msg = await updateChannelData(); 
+		const msg = await updateChannelData(false); 
 		if (msg) {
 			const hash = JSON.stringify({ id: msg.id, type: msg.type });
 			
