@@ -23,11 +23,12 @@ const ALL_GAME_ITEMS = {
 	"Crate 📦": [
 		"Bench Crate", "Ladder Crate", "Light Crate", "Arch Crate", "Sign Crate", 
 		"Owner Door Crate", "Spring Crate", "Bridge Crate", "Roleplay Crate", "Picture Frame Crate", 
-		"Seesaw Crate", "Conveyor Crate", "Boombox Crate", "Teleporter Pad Crate", "Fence Crate"
+		"Seesaw Crate", "Conveyor Crate", "Boombox Crate", "Teleporter Pad Crate", "Fence Crate",
+		"Bear Trap Crate"
 	],
 	"Moon & Weather 🌙": [
 		"Rainbowmoon", "Megamoon", "Bloodmoon", "Goldmoon", "Sunburst", 
-		"Snowfall", "Rainbow", "Meteor", "Aurora", "Rain", "Snow"
+		"Snowfall", "Rainbow", "Meteor", "Aurora", "Rain", "Snow", "Lightning"
 	]
 };
 
@@ -48,15 +49,15 @@ const TARGET_ITEMS = [
 	"Dragon's Breath", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
 	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
 	"Mushroom", "Cherry", "Fire Fern", "Basic Pot", "Strawberry Sniper", "Owner Door Crate",
-	"Teleporter Pad Crate", "Fence Crate", 
+	"Teleporter Pad Crate", "Fence Crate", "Bear Trap Crate", 
 	"Sunflower", "Goldmoon", "Megamoon", "Bloodmoon", "Aurora", "Rainbow", "Meteor", 
-	"Rainbowmoon", "Sunburst", "Snowfall"
+	"Rainbowmoon", "Sunburst", "Snowfall", "Lightning"
 ];
 
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.5",
+		version: "5.7",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock & Last seen tracker with real history tracking",
@@ -278,18 +279,18 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 	}
 }
 
-// Converts timestamp into Exact Date format (e.g. Oct 20, 3:05 PM)
+// Converts timestamp into Exact Date format (e.g. July 19, 3:15 AM)
 function formatExactDate(ms) {
 	if (ms <= 0) return "";
 	const d = new Date(ms);
-	return d.toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+	return d.toLocaleString("en-US", { timeZone: TZ, month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 function getTimeAgo(ms) {
 	if (ms <= 0) return "Never Seen";
 	
 	const min = Math.floor(ms / 60000);
-	if (min < 1) return "Just now";
+	if (min < 1) return "just now";
 	
 	const hr = Math.floor(min / 60);
 	const days = Math.floor(hr / 24);
@@ -297,16 +298,16 @@ function getTimeAgo(ms) {
 	const months = Math.floor(days / 30);
 	const years = Math.floor(days / 365);
 	
-	if (years > 0) return `${years} Year${years !== 1 ? 's' : ''} ago`;
-	if (months > 0) return `${months} Month${months !== 1 ? 's' : ''} ago`;
-	if (weeks > 0) return `${weeks} Week${weeks !== 1 ? 's' : ''} ago`;
-	if (days > 0) return `${days} Day${days !== 1 ? 's' : ''} ago`;
+	if (years > 0) return `${years} year${years !== 1 ? 's' : ''} ago`;
+	if (months > 0) return `${months} month${months !== 1 ? 's' : ''} ago`;
+	if (weeks > 0) return `${weeks} week${weeks !== 1 ? 's' : ''} ago`;
+	if (days > 0) return `${days} day${days !== 1 ? 's' : ''} ago`;
 	
 	if (hr > 0) {
 		const remMin = min % 60;
-		return `${hr} Hour${hr !== 1 ? 's' : ''}${remMin > 0 ? ` ${remMin} Minute${remMin !== 1 ? 's' : ''}` : ''} ago`;
+		return `${hr} hour${hr !== 1 ? 's' : ''}${remMin > 0 ? ` ${remMin} minute${remMin !== 1 ? 's' : ''}` : ''} ago`;
 	}
-	return `${min} Minute${min !== 1 ? 's' : ''} ago`;
+	return `${min} minute${min !== 1 ? 's' : ''} ago`;
 }
 
 function getAlerts(msg) {
@@ -381,28 +382,29 @@ function buildLastSeenMessage() {
 	let out = "🟢 LIVE STOCK & LAST SEEN 🟢\n";
 	
 	for (const [category, itemsList] of Object.entries(ALL_GAME_ITEMS)) {
-		out += `\n【 ${category} 】\n`;
+		out += `\n【 ${category} 】\n\n`; // Double line break for category header
+		
 		for (const itemName of itemsList) {
 			const timestamp = lastSeenDB[category][itemName];
 			
 			if (currentStockItems.has(itemName)) {
 				if (category === "Moon & Weather 🌙") {
-					out += `✅ ${itemName}: Active\n`;
+					out += `✅ ${itemName}: Active\n\n`; // Double line break for spacing & Emoji restored
 				} else {
-					out += `✅ ${itemName}: On Stock\n`;
+					out += `✅ ${itemName}: On Stock\n\n`; // Double line break for spacing & Emoji restored
 				}
 			} else if (timestamp === 0) {
-				out += `❌ ${itemName}: Never Seen\n`;
+				out += `❌ ${itemName}: Never Seen\n\n`; // Double line break for spacing & Emoji restored
 			} else {
-				// ADDED: Appending Exact Timestamp Details here
+				// Exact Timestamp Details formatted cleanly & Emoji restored
 				const exactDateText = formatExactDate(timestamp);
-				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)} (${exactDateText})\n`;
+				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)} (${exactDateText})\n\n`; // Double line break for spacing
 			}
 		}
 	}
 	
 	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
-	out += `\n⏰ Last Updated: ${time}`;
+	out += `⏰ Last Updated: ${time}`;
 	return out.trim();
 }
 
