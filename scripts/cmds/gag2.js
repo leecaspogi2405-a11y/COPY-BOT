@@ -7,25 +7,28 @@ let pollTimer = null;
 const activeSessions = new Map();
 const lastSentHash = new Map();
 
-// Exactly ordered as the real game's shop lineup
+// Updated with your exact lineup + missing items from your log
 const ALL_GAME_ITEMS = {
 	"Seed 🌱": [
 		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Bamboo", "Corn", "Banana", 
-		"Cactus", "Grape", "Pineapple", "Mushroom", "Apple", "Dragon's Breath", "Venum Spitter", 
-		"Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom", "Poison Apple", "Cherry", "Fire Fern"
+		"Apple", "Grape", "Pineapple", "Sun Bloom", "Poison Apple", "Coconut", "Mango", 
+		"Cactus", "Cherry", "Green Bean", "Acorn", "Venom Spitter", "Venum Spitter", "Mushroom", 
+		"Dragon's Breath", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Fire Fern"
 	],
 	"Gear ⚙️": [
-		"Common Watering Can", "Trowel", "Common Sprinkler", "Rare Sprinkler", "Super Watering Can", 
-		"Super Sprinkler", "Legendary Sprinkler", "Gnome", "Shrink Mushroom", "Invisible Mushroom", 
-		"Jump Mushroom", "Speed Mushroom", "Basic Pot", "Strawberry Sniper"
+		"Common Watering Can", "Common Sprinkler", "Uncommon Sprinkler", "Jump Mushroom", 
+		"Trowel", "Invisibility Mushroom", "Invisible Mushroom", "Rare Sprinkler", "Shrink Mushroom", 
+		"Speed Mushroom", "Gnome", "Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", 
+		"Basic Pot", "Strawberry Sniper"
 	],
 	"Crate 📦": [
-		"Bench Crate", "Bridge Crate", "Seesaw Crate", "Sign Crate", "Ladder Crate", "Light Crate", 
-		"Owner Door Crate", "Roleplay Crate", "Spring Crate", "Teleporter Pad Crate", "Fence Crate"
+		"Bench Crate", "Ladder Crate", "Light Crate", "Arch Crate", "Sign Crate", 
+		"Owner Door Crate", "Spring Crate", "Bridge Crate", "Roleplay Crate", "Picture Frame Crate", 
+		"Seesaw Crate", "Conveyor Crate", "Boombox Crate", "Teleporter Pad Crate", "Fence Crate"
 	],
 	"Moon & Event 🌙": [
-		"Gold Moon", "Blood Moon", "Sun Burst", "Rain", 
-		"Rainbow", "Meteor Shower", "Snow", "Aurora"
+		"Gold Moon", "Red Moon", "Blue Moon", "Blood Moon",
+		"Sun Burst", "Rain", "Rainbow", "Meteor Shower", "Snow"
 	]
 };
 
@@ -46,7 +49,7 @@ let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
 const TARGET_ITEMS = [
-	"Dragon's Breath", "Venum Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
+	"Dragon's Breath", "Venum Spitter", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
 	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
 	"Mushroom", "Cherry", "Fire Fern", "Basic Pot", "Strawberry Sniper", "Owner Door Crate",
 	"Teleporter Pad Crate", "Fence Crate"
@@ -55,7 +58,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.1",
+		version: "5.0",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock & Last seen tracker for Grow A Garden",
@@ -75,7 +78,7 @@ module.exports = {
 		if (body === "on") {
 			activeSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
 			if (!pollTimer) startPolling(api);
-			return message.reply("✅ Auto stock + Last Seen tracker enabled in this chat!");
+			return message.reply("✅ Auto stock + Last Seen tracker enabled sa chat na ito!");
 		}
 
 		if (body === "off") {
@@ -89,13 +92,11 @@ module.exports = {
 
 		if (body === "now" || body === "") {
 			const latestMsg = await updateChannelData();
-			if (!latestMsg) return message.reply("❌ Could not fetch data!");
+			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
 			
-			const updateData = buildFullUpdate(latestMsg);
-			return message.reply(updateData.hasAlerts ? 
-				{ body: updateData.text, mentions: buildMentions(event.participantIDs || []) } : 
-				updateData.text
-			);
+			// Send message 1 (Stock), then message 2 (Last Seen)
+			sendUpdates(api, threadID, latestMsg, event.participantIDs || []);
+			return;
 		}
 
 		message.reply("❌ Commands: on, off, now");
@@ -132,7 +133,7 @@ async function fetchChannelHistory() {
 				.replace(/&#34;/gi, '"')
 				.replace(/&amp;/gi, '&')
 				.replace(/\u00A0/g, ' ')
-				.replace(/\n{3,}/g, '\n\n')
+				.replace(/\n{2,}/g, '\n')
 				.trim();
 
 			if (text) messages.push({ id, text, timestamp });
@@ -179,7 +180,7 @@ function updateLastSeenDB(text, timestamp, isLatest) {
 		else if (line.includes('CRATE SHOP')) currentCategory = 'Crate 📦';
 		else if (line.includes('MOON') || line.includes('EVENT')) currentCategory = 'Moon & Event 🌙';
 		else if (line.includes(':') && currentCategory) {
-			let itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[🪴🌱⚙️📦🌿💧🚿🧙‍♂️💡🏛️🪑⚖️🪧🪜🚪🎭]+/, '').trim();
+			let itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[✅❌🕒]\s*/, '').trim();
 			if (itemName) {
 				if (lastSeenDB[currentCategory][itemName] === undefined) lastSeenDB[currentCategory][itemName] = 0; 
 				lastSeenDB[currentCategory][itemName] = timestamp;
@@ -215,62 +216,6 @@ function getTimeAgo(ms) {
 	return `${min} Minute${min !== 1 ? 's' : ''} ago`;
 }
 
-function buildFullUpdate(msg) {
-	let out = "";
-	let hasAlerts = false;
-	const currentTime = new Date().toLocaleString("en-US", { timeZone: TZ });
-
-	// 1. ADD ALERTS
-	if (msg && msg.type === 'stock') {
-		const alerts = getAlerts(msg.text);
-		if (alerts) {
-			out += alerts;
-			hasAlerts = true;
-		}
-	} 
-
-	// 2. ADD RAW STOCK MESSAGE EXACTLY AS IT IS
-	if (msg) {
-		if (msg.type === 'weather') {
-			out += "🌦️ WEATHER UPDATE 🌦️\n";
-		}
-		
-		const rawLines = msg.text.split('\n');
-		for (const line of rawLines) {
-			if (!line.includes('Copyright') && line.trim() !== '') {
-				out += line + '\n';
-			}
-		}
-		out += `\n⏰ ${currentTime}\n\n`;
-	}
-
-	// 3. ADD LIVE STOCK & LAST SEEN DASHBOARD
-	out += "🟢 LIVE STOCK & LAST SEEN 🟢\n";
-	
-	for (const [category, itemsList] of Object.entries(ALL_GAME_ITEMS)) {
-		out += `\n【 ${category} 】\n`;
-		for (const itemName of itemsList) {
-			const timestamp = lastSeenDB[category][itemName];
-			if (currentStockItems.has(itemName)) {
-				out += `✅ ${itemName}: On Stock\n`;
-			} else if (timestamp === 0) {
-				out += `❌ ${itemName}: Never Seen\n`;
-			} else {
-				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)}\n`;
-			}
-		}
-	}
-	
-	out += `\n⏰ Last Updated: ${currentTime}`;
-
-	// Failsafe to protect Messenger 2000 character limit constraint
-	if (out.length > 1999) {
-		out = out.substring(0, 1995) + "...";
-	}
-
-	return { text: out.trim(), hasAlerts };
-}
-
 function getAlerts(text) {
 	if (!text) return "";
 	const alerts = [];
@@ -278,7 +223,7 @@ function getAlerts(text) {
 
 	for (const line of lines) {
 		if (!line.includes(':')) continue;
-		let realItemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[🪴🌱⚙️📦🌿💧🚿🧙‍♂️💡🏛️🪑⚖️🪧🪜🚪🎭]+/, '').trim();
+		let realItemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
 
 		for (const item of TARGET_ITEMS) {
 			if (realItemName.toLowerCase() === item.toLowerCase()) {
@@ -301,6 +246,82 @@ function buildMentions(participantIDs) {
 	return mentions;
 }
 
+function formatRawStockMsg(msg) {
+	const lines = msg.text.split('\n').map(l => l.trim()).filter(l => l);
+	let out = "";
+	const isWeather = msg.type === 'weather';
+
+	if (isWeather) {
+		for (const line of lines) {
+			const cleanLine = line.replace(/🌦️/g, '').trim();
+			if (cleanLine && !cleanLine.match(/^\d+$/) && !cleanLine.includes('Copyright')) {
+				out += cleanLine + '\n';
+			}
+		}
+	} else {
+		for (let i = 1; i < lines.length; i++) {
+			const line = lines[i];
+			if (line.includes('SHOP STOCK')) { out += `\n${line.trim()}\n`; continue; }
+			if (line.startsWith('-') || line.startsWith('>')) { out += '  ' + line + '\n'; continue; }
+			if (line.match(/^[🪴🌱⚙️📦🌿]/)) continue;
+			if (!line.includes('Copyright') && !line.startsWith('@')) out += line + '\n';
+		}
+	}
+	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
+	return out.trim() + '\n\n⏰ ' + time;
+}
+
+function buildLastSeenMessage() {
+	let out = "🟢 LIVE STOCK & LAST SEEN 🟢\n";
+	
+	// Iterates strictly based on ALL_GAME_ITEMS lineup
+	for (const [category, itemsList] of Object.entries(ALL_GAME_ITEMS)) {
+		out += `\n【 ${category} 】\n`;
+		for (const itemName of itemsList) {
+			const timestamp = lastSeenDB[category][itemName];
+			if (currentStockItems.has(itemName)) {
+				out += `✅ ${itemName}: On Stock\n`;
+			} else if (timestamp === 0) {
+				out += `❌ ${itemName}: Never Seen\n`;
+			} else {
+				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)}\n`;
+			}
+		}
+	}
+	
+	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
+	out += `\n⏰ Last Updated: ${time}`;
+	return out.trim();
+}
+
+function sendUpdates(api, threadID, msg, participantIDs) {
+	let msg1 = "";
+	let hasAlerts = false;
+	
+	if (msg.type === 'stock') {
+		const alerts = getAlerts(msg.text);
+		if (alerts) {
+			msg1 += alerts;
+			hasAlerts = true;
+		}
+		msg1 += formatRawStockMsg(msg);
+	} else if (msg.type === 'weather') {
+		msg1 += "🌦️ WEATHER UPDATE 🌦️\n\n" + formatRawStockMsg(msg);
+	}
+
+	const msg2 = buildLastSeenMessage();
+	const sendPayload = hasAlerts ? { body: msg1.trim(), mentions: buildMentions(participantIDs) } : msg1.trim();
+
+	// Sends First Message (Stock), once done, immediately sends Second Message (Last Seen)
+	api.sendMessage(sendPayload, threadID, (err) => {
+		if (!err) {
+			api.sendMessage(msg2, threadID);
+		} else {
+			console.error("[TGStock] Error sending Message 1:", err);
+		}
+	});
+}
+
 function startPolling(api) {
 	if (pollTimer) return;
 	console.log("[TGStock] Started polling Telegram channel...");
@@ -316,12 +337,8 @@ function startPolling(api) {
 					if (lastHash !== hash) {
 						lastSentHash.set(threadID, hash);
 						
-						const updateData = buildFullUpdate(msg);
-						if (updateData.hasAlerts) {
-							api.sendMessage({ body: updateData.text, mentions: buildMentions(session.participantIDs || []) }, threadID);
-						} else {
-							api.sendMessage(updateData.text, threadID);
-						}
+						// Ito yung nagpapadala ng dalawang chat consecutively
+						sendUpdates(api, threadID, msg, session.participantIDs || []);
 					}
 				}
 			}
