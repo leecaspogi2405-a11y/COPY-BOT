@@ -55,7 +55,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "4.0",
+		version: "5.0",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock & Last seen tracker for Grow A Garden",
@@ -132,7 +132,7 @@ async function fetchChannelHistory() {
 				.replace(/&#34;/gi, '"')
 				.replace(/&amp;/gi, '&')
 				.replace(/\u00A0/g, ' ')
-				.replace(/\n{2,}/g, '\n')
+				.replace(/\n{3,}/g, '\n\n')
 				.trim();
 
 			if (text) messages.push({ id, text, timestamp });
@@ -179,7 +179,7 @@ function updateLastSeenDB(text, timestamp, isLatest) {
 		else if (line.includes('CRATE SHOP')) currentCategory = 'Crate 📦';
 		else if (line.includes('MOON') || line.includes('EVENT')) currentCategory = 'Moon & Event 🌙';
 		else if (line.includes(':') && currentCategory) {
-			let itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
+			let itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[🪴🌱⚙️📦🌿💧🚿🧙‍♂️💡🏛️🪑⚖️🪧🪜🚪🎭]+/, '').trim();
 			if (itemName) {
 				if (lastSeenDB[currentCategory][itemName] === undefined) lastSeenDB[currentCategory][itemName] = 0; 
 				lastSeenDB[currentCategory][itemName] = timestamp;
@@ -210,52 +210,58 @@ function getTimeAgo(ms) {
 	
 	if (hr > 0) {
 		const remMin = min % 60;
-		return `${hr} Hr${hr !== 1 ? 's' : ''}${remMin > 0 ? ` ${remMin} Min${remMin !== 1 ? 's' : ''}` : ''} ago`;
+		return `${hr} Hour${hr !== 1 ? 's' : ''}${remMin > 0 ? ` ${remMin} Minute${remMin !== 1 ? 's' : ''}` : ''} ago`;
 	}
-	return `${min} Min${min !== 1 ? 's' : ''} ago`;
+	return `${min} Minute${min !== 1 ? 's' : ''} ago`;
 }
 
 function buildFullUpdate(msg) {
 	let out = "";
 	let hasAlerts = false;
+	const currentTime = new Date().toLocaleString("en-US", { timeZone: TZ });
 
+	// 1. ADD ALERTS
 	if (msg && msg.type === 'stock') {
 		const alerts = getAlerts(msg.text);
 		if (alerts) {
 			out += alerts;
 			hasAlerts = true;
 		}
-	} else if (msg && msg.type === 'weather') {
-		out += "🌦️ WEATHER UPDATE 🌦️\n";
-		const lines = msg.text.split('\n');
-		for (const line of lines) {
-			const cleanLine = line.replace(/🌦️/g, '').trim();
-			if (cleanLine && !cleanLine.match(/^\d+$/) && !cleanLine.includes('Copyright')) {
-				out += cleanLine + '\n';
+	} 
+
+	// 2. ADD RAW STOCK MESSAGE EXACTLY AS IT IS
+	if (msg) {
+		if (msg.type === 'weather') {
+			out += "🌦️ WEATHER UPDATE 🌦️\n";
+		}
+		
+		const rawLines = msg.text.split('\n');
+		for (const line of rawLines) {
+			if (!line.includes('Copyright') && line.trim() !== '') {
+				out += line + '\n';
 			}
 		}
-		out += "\n";
+		out += `\n⏰ ${currentTime}\n\n`;
 	}
 
-	out += "📊 LIVE STOCK & LAST SEEN 📊\n";
+	// 3. ADD LIVE STOCK & LAST SEEN DASHBOARD
+	out += "🟢 LIVE STOCK & LAST SEEN 🟢\n";
 	
-	// Iterates strictly based on ALL_GAME_ITEMS lineup
 	for (const [category, itemsList] of Object.entries(ALL_GAME_ITEMS)) {
 		out += `\n【 ${category} 】\n`;
 		for (const itemName of itemsList) {
 			const timestamp = lastSeenDB[category][itemName];
 			if (currentStockItems.has(itemName)) {
-				out += `${itemName}: On Stock\n`;
+				out += `✅ ${itemName}: On Stock\n`;
 			} else if (timestamp === 0) {
-				out += `${itemName}: Never Seen\n`;
+				out += `❌ ${itemName}: Never Seen\n`;
 			} else {
-				out += `${itemName}: ${getTimeAgo(Date.now() - timestamp)}\n`;
+				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)}\n`;
 			}
 		}
 	}
 	
-	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
-	out += `\n⏰ Updated: ${time}`;
+	out += `\n⏰ Last Updated: ${currentTime}`;
 
 	// Failsafe to protect Messenger 2000 character limit constraint
 	if (out.length > 1999) {
@@ -272,7 +278,7 @@ function getAlerts(text) {
 
 	for (const line of lines) {
 		if (!line.includes(':')) continue;
-		let realItemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
+		let realItemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[🪴🌱⚙️📦🌿💧🚿🧙‍♂️💡🏛️🪑⚖️🪧🪜🚪🎭]+/, '').trim();
 
 		for (const item of TARGET_ITEMS) {
 			if (realItemName.toLowerCase() === item.toLowerCase()) {
