@@ -1,4 +1,4 @@
-const axios = require('axios');
+Const axios = require('axios');
 
 const TELEGRAM_CHANNEL = "growagardenlivestock";
 const TZ = "Asia/Manila";
@@ -7,7 +7,6 @@ let pollTimer = null;
 const activeSessions = new Map();
 const lastSentHash = new Map();
 
-// Updated category to "Moon & Weather 🌙"
 const ALL_GAME_ITEMS = {
 	"Seed 🌱": [
 		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Bamboo", "Corn", "Banana", 
@@ -27,8 +26,9 @@ const ALL_GAME_ITEMS = {
 		"Seesaw Crate", "Conveyor Crate", "Boombox Crate", "Teleporter Pad Crate", "Fence Crate"
 	],
 	"Moon & Weather 🌙": [
-		"Gold Moon", "Blood Moon", "Sun Burst", "Rain", 
-		"Rainbow", "Meteor", "Snow", "Aurora", "Snow Fall"
+		// Longest items first for accurate parsing!
+		"Rainbowmoon", "Megamoon", "Bloodmoon", "Goldmoon", "Sunburst", 
+		"Snowfall", "Rainbow", "Meteor", "Aurora", "Rain", "Snow"
 	]
 };
 
@@ -54,7 +54,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.2",
+		version: "5.3",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock & Last seen tracker for Grow A Garden",
@@ -209,14 +209,27 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 		else if (currentCategory) {
 			let itemName = "";
 			
-			if (line.includes(':')) {
-				itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[✅❌🕒]\s*/, '').trim();
-			} else {
-				// Fallback: If weather drops don't use colons
+			// --- FIX: Stronger Moon & Weather detection ---
+			if (currentCategory === 'Moon & Weather 🌙') {
 				for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
-					if (line.toLowerCase().includes(knownItem.toLowerCase())) {
+					// Removes spaces/dashes to catch variations like "Blood Moon", "Bloodmoon", etc.
+					const normalizedLine = line.toLowerCase().replace(/[\s-]/g, '');
+					const normalizedKnown = knownItem.toLowerCase().replace(/[\s-]/g, '');
+					if (normalizedLine.includes(normalizedKnown)) {
 						itemName = knownItem;
 						break;
+					}
+				}
+			} else {
+				// Normal Shop detection
+				if (line.includes(':')) {
+					itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[✅❌🕒]\s*/, '').trim();
+				} else {
+					for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
+						if (line.toLowerCase().includes(knownItem.toLowerCase())) {
+							itemName = knownItem;
+							break;
+						}
 					}
 				}
 			}
@@ -318,13 +331,11 @@ function formatRawStockMsg(msg) {
 function buildLastSeenMessage() {
 	let out = "🟢 LIVE STOCK & LAST SEEN 🟢\n";
 	
-	// Iterates strictly based on ALL_GAME_ITEMS lineup
 	for (const [category, itemsList] of Object.entries(ALL_GAME_ITEMS)) {
 		out += `\n【 ${category} 】\n`;
 		for (const itemName of itemsList) {
 			const timestamp = lastSeenDB[category][itemName];
 			if (currentStockItems.has(itemName)) {
-				// Check if the item belongs to Moon & Weather to change the display text
 				if (category === "Moon & Weather 🌙") {
 					out += `✅ ${itemName}: Active\n`;
 				} else {
@@ -361,7 +372,6 @@ function sendUpdates(api, threadID, msg, participantIDs) {
 	const msg2 = buildLastSeenMessage();
 	const sendPayload = hasAlerts ? { body: msg1.trim(), mentions: buildMentions(participantIDs) } : msg1.trim();
 
-	// Sends First Message (Stock/Weather), once done, immediately sends Second Message (Last Seen)
 	api.sendMessage(sendPayload, threadID, (err) => {
 		if (!err) {
 			api.sendMessage(msg2, threadID);
