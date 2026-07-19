@@ -3,13 +3,11 @@ const axios = require('axios');
 const TELEGRAM_CHANNEL = "growagardenlivestock";
 const TZ = "Asia/Manila";
 let pollTimer = null;
-let seenEditTimer = null;
 
 const activeSessions = new Map();
 const lastSentHash = new Map();
-const activeSeenMsgs = new Map();
 
-// Added all missing Moon & Event items (Sun Burst, Rain, Rainbow, etc.)
+// Exactly ordered as the real game's shop lineup
 const ALL_GAME_ITEMS = {
 	"Seed 🌱": [
 		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Bamboo", "Corn", "Banana", 
@@ -57,19 +55,18 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "3.0",
+		version: "4.0",
 		author: "Dev Xdragon",
 		role: 1,
-		description: "Auto stock Grow A Garden from public Telegram channel",
+		description: "Auto stock & Last seen tracker for Grow A Garden",
 		category: "stock",
-		guide: "{pn} on - Enable auto stock\n{pn} off - Disable auto stock\n{pn} now - View latest raw stock msg\n{pn} seen - View combined live stock and last seen dashboard"
+		guide: "{pn} on - Enable auto stock\n{pn} off - Disable auto stock\n{pn} now - View live stock & last seen dashboard"
 	},
 
 	onStart: async ({ message, event, args, api }) => {
 		const body = args.join(" ").toLowerCase();
 		const threadID = event.threadID;
 
-		// Initialize historical data on first command run if not yet done
 		if (!isDatabaseInitialized) {
 			await updateChannelData();
 			isDatabaseInitialized = true;
@@ -78,7 +75,7 @@ module.exports = {
 		if (body === "on") {
 			activeSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
 			if (!pollTimer) startPolling(api);
-			return message.reply("✅ Auto stock from GAG2 enabled!");
+			return message.reply("✅ Auto stock + Last Seen tracker enabled in this chat!");
 		}
 
 		if (body === "off") {
@@ -90,48 +87,25 @@ module.exports = {
 			return message.reply("✅ Auto stock disabled!");
 		}
 
-		if (body === "now") {
+		if (body === "now" || body === "") {
 			const latestMsg = await updateChannelData();
-			if (!latestMsg) return message.reply("❌ Could not fetch stock data!");
+			if (!latestMsg) return message.reply("❌ Could not fetch data!");
 			
-			let formatted = formatMessage(latestMsg);
-			let hasAlerts = false;
-
-			if (latestMsg.type === 'stock') {
-				const alerts = getAlerts(latestMsg.text);
-				if (alerts) {
-					formatted = alerts + formatted;
-					hasAlerts = true;
-				}
-			}
-			return message.reply(hasAlerts ? { body: formatted, mentions: buildMentions(event.participantIDs || []) } : formatted);
+			const updateData = buildFullUpdate(latestMsg);
+			return message.reply(updateData.hasAlerts ? 
+				{ body: updateData.text, mentions: buildMentions(event.participantIDs || []) } : 
+				updateData.text
+			);
 		}
 
-		if (body === "seen" || body === "") {
-			await updateChannelData(); // Ensure fresh data before showing
-			const seenText = buildCombinedSeenMessage();
-			
-			api.sendMessage(seenText, threadID, (err, info) => {
-				if (!err && info) {
-					activeSeenMsgs.set(info.messageID, threadID);
-					startSeenEditor(api);
-				}
-			});
-			return;
-		}
-
-		message.reply("❌ Commands: on, off, now, seen");
+		message.reply("❌ Commands: on, off, now");
 	}
 };
 
-/**
- * Acts as the public API parser: 
- * Fetches the HTML page and extracts all historical messages to prevent starting from "Never Seen".
- */
 async function fetchChannelHistory() {
 	try {
 		const res = await axios.get(`https://t.me/s/${TELEGRAM_CHANNEL}`, {
-			headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+			headers: { "User-Agent": "Mozilla/5.0" },
 			timeout: 15000
 		});
 
@@ -144,8 +118,7 @@ async function fetchChannelHistory() {
 			const postId = match[1];
 			const id = parseInt(postId.split('/')[1]) || 0;
 			const rawHtml = match[2];
-			const datetime = match[3];
-			const timestamp = new Date(datetime).getTime();
+			const timestamp = new Date(match[3]).getTime();
 
 			let text = rawHtml
 				.replace(/<br\s*\/?>/gi, '\n')
@@ -156,15 +129,10 @@ async function fetchChannelHistory() {
 				.replace(/&gt;/gi, '>')
 				.replace(/&lt;/gi, '<')
 				.replace(/&#39;/gi, "'")
-				.replace(/&#33;/gi, '!')
 				.replace(/&#34;/gi, '"')
-				.replace(/&#(\d+);/gi, (_, n) => String.fromCharCode(n))
 				.replace(/&amp;/gi, '&')
 				.replace(/\u00A0/g, ' ')
-				.replace(/\n{3,}/g, '\n\n')
-				.replace(/[ \t]+\n/g, '\n')
-				.replace(/\n[ \t]+/g, '\n')
-				.replace(/\d+\s*views?\s*\d*:\d*/gi, '')
+				.replace(/\n{2,}/g, '\n')
 				.trim();
 
 			if (text) messages.push({ id, text, timestamp });
@@ -173,14 +141,10 @@ async function fetchChannelHistory() {
 		messages.sort((a, b) => a.id - b.id);
 		return messages;
 	} catch (e) {
-		console.error("[TGStock] Error:", e.message);
 		return [];
 	}
 }
 
-/**
- * Updates DB and extracts current stock logically based on message history.
- */
 async function updateChannelData() {
 	const messages = await fetchChannelHistory();
 	if (!messages || messages.length === 0) return null;
@@ -193,14 +157,10 @@ async function updateChannelData() {
 			updateLastSeenDB(msg.text, msg.timestamp, false);
 			latestStock = msg;
 		}
-		if (msg.text.includes('Weather')) {
-			latestWeather = msg;
-		}
+		if (msg.text.includes('Weather')) latestWeather = msg;
 	}
 
-	if (latestStock) {
-		updateLastSeenDB(latestStock.text, latestStock.timestamp, true);
-	}
+	if (latestStock) updateLastSeenDB(latestStock.text, latestStock.timestamp, true);
 
 	const latest = latestWeather && latestWeather.id > (latestStock?.id || 0) ? latestWeather : latestStock;
 	if (latest) latest.type = latest.text.includes('Weather') ? 'weather' : 'stock';
@@ -221,26 +181,22 @@ function updateLastSeenDB(text, timestamp, isLatest) {
 		else if (line.includes(':') && currentCategory) {
 			let itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
 			if (itemName) {
-				if (lastSeenDB[currentCategory][itemName] === undefined) {
-					lastSeenDB[currentCategory][itemName] = 0; // Dynamic add if completely new
-				}
+				if (lastSeenDB[currentCategory][itemName] === undefined) lastSeenDB[currentCategory][itemName] = 0; 
 				lastSeenDB[currentCategory][itemName] = timestamp;
 				tempStock.add(itemName);
 			}
 		}
 	}
 
-	if (isLatest) {
-		currentStockItems = tempStock;
-	}
+	if (isLatest) currentStockItems = tempStock;
 }
 
 function getTimeAgo(ms) {
 	if (ms <= 0) return "Never Seen";
-	const sec = Math.floor(ms / 1000);
-	if (sec < 60) return `${sec} Second${sec !== 1 ? 's' : ''} ago`;
 	
-	const min = Math.floor(sec / 60);
+	const min = Math.floor(ms / 60000);
+	if (min < 1) return "Just now";
+	
 	const hr = Math.floor(min / 60);
 	const days = Math.floor(hr / 24);
 	const weeks = Math.floor(days / 7);
@@ -254,69 +210,59 @@ function getTimeAgo(ms) {
 	
 	if (hr > 0) {
 		const remMin = min % 60;
-		return `${hr} Hour${hr !== 1 ? 's' : ''}${remMin > 0 ? ` ${remMin} Minute${remMin !== 1 ? 's' : ''}` : ''} ago`;
+		return `${hr} Hr${hr !== 1 ? 's' : ''}${remMin > 0 ? ` ${remMin} Min${remMin !== 1 ? 's' : ''}` : ''} ago`;
 	}
-	return `${min} Minute${min !== 1 ? 's' : ''} ago`;
+	return `${min} Min${min !== 1 ? 's' : ''} ago`;
 }
 
-/**
- * Combines both current stock and last seen into a single clean lineup.
- */
-function buildCombinedSeenMessage() {
-	let out = "🟢 LIVE STOCK & LAST SEEN 🟢\n\n";
-	
-	for (const [category, items] of Object.entries(lastSeenDB)) {
-		if (Object.keys(items).length === 0) continue;
-		out += `【 ${category} 】\n`;
-		
-		// Sort: On Stock at the top, then sorted by newest timestamp, never seen at the bottom.
-		const sortedItems = Object.entries(items).sort((a, b) => {
-			const aStock = currentStockItems.has(a[0]);
-			const bStock = currentStockItems.has(b[0]);
-			if (aStock && !bStock) return -1;
-			if (!aStock && bStock) return 1;
-			return b[1] - a[1];
-		});
+function buildFullUpdate(msg) {
+	let out = "";
+	let hasAlerts = false;
 
-		for (const [itemName, timestamp] of sortedItems) {
-			if (currentStockItems.has(itemName)) {
-				out += `✅ ${itemName}: On Stock\n`;
-			} else if (timestamp === 0) {
-				out += `❌ ${itemName}: Never Seen\n`;
-			} else {
-				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)}\n`;
+	if (msg && msg.type === 'stock') {
+		const alerts = getAlerts(msg.text);
+		if (alerts) {
+			out += alerts;
+			hasAlerts = true;
+		}
+	} else if (msg && msg.type === 'weather') {
+		out += "🌦️ WEATHER UPDATE 🌦️\n";
+		const lines = msg.text.split('\n');
+		for (const line of lines) {
+			const cleanLine = line.replace(/🌦️/g, '').trim();
+			if (cleanLine && !cleanLine.match(/^\d+$/) && !cleanLine.includes('Copyright')) {
+				out += cleanLine + '\n';
 			}
 		}
 		out += "\n";
 	}
+
+	out += "📊 LIVE STOCK & LAST SEEN 📊\n";
 	
-	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
-	out += `⏰ Last Updated: ${time}`;
-	return out.trim();
-}
-
-function formatMessage(data) {
-	if (!data) return "❌ No data available!";
-	const lines = data.text.split('\n').map(l => l.trim()).filter(l => l);
-	const isWeather = data.type === 'weather';
-	let out = "";
-
-	if (isWeather) {
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i].replace(/🌦️/g, '').trim();
-			if (line && !line.match(/^\d+$/) && !line.includes('Copyright')) out += line + '\n';
-		}
-	} else {
-		for (let i = 1; i < lines.length; i++) {
-			const line = lines[i];
-			if (line.includes('SHOP STOCK')) { out += `\n${line.trim()}\n`; continue; }
-			if (line.startsWith('-') || line.startsWith('>')) { out += '  ' + line + '\n'; continue; }
-			if (line.match(/^[🪴🌱⚙️📦🌿]/)) continue;
-			if (!line.includes('Copyright') && !line.startsWith('@')) out += line + '\n';
+	// Iterates strictly based on ALL_GAME_ITEMS lineup
+	for (const [category, itemsList] of Object.entries(ALL_GAME_ITEMS)) {
+		out += `\n【 ${category} 】\n`;
+		for (const itemName of itemsList) {
+			const timestamp = lastSeenDB[category][itemName];
+			if (currentStockItems.has(itemName)) {
+				out += `${itemName}: On Stock\n`;
+			} else if (timestamp === 0) {
+				out += `${itemName}: Never Seen\n`;
+			} else {
+				out += `${itemName}: ${getTimeAgo(Date.now() - timestamp)}\n`;
+			}
 		}
 	}
+	
 	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
-	return out.trim() + '\n\n⏰ ' + time;
+	out += `\n⏰ Updated: ${time}`;
+
+	// Failsafe to protect Messenger 2000 character limit constraint
+	if (out.length > 1999) {
+		out = out.substring(0, 1995) + "...";
+	}
+
+	return { text: out.trim(), hasAlerts };
 }
 
 function getAlerts(text) {
@@ -349,39 +295,12 @@ function buildMentions(participantIDs) {
 	return mentions;
 }
 
-function startSeenEditor(api) {
-	if (seenEditTimer) return;
-	
-	// Edits the last seen dashboard live every 15 seconds
-	seenEditTimer = setInterval(() => {
-		if (activeSeenMsgs.size === 0) {
-			clearInterval(seenEditTimer);
-			seenEditTimer = null;
-			return;
-		}
-
-		const updatedText = buildCombinedSeenMessage();
-		
-		for (const [messageID, threadID] of activeSeenMsgs.entries()) {
-			try {
-				if (typeof api.editMessage === "function") {
-					api.editMessage(updatedText, messageID, (err) => {
-						if (err && err.error === 'Message not found') activeSeenMsgs.delete(messageID);
-					});
-				}
-			} catch (e) {
-				// Safely ignore minor edit skips
-			}
-		}
-	}, 15000); 
-}
-
 function startPolling(api) {
 	if (pollTimer) return;
 	console.log("[TGStock] Started polling Telegram channel...");
 
 	pollTimer = setInterval(async () => {
-		const msg = await updateChannelData(); // Will refresh stock silently in DB
+		const msg = await updateChannelData(); 
 		if (msg) {
 			const hash = JSON.stringify({ id: msg.id, type: msg.type });
 			
@@ -391,21 +310,11 @@ function startPolling(api) {
 					if (lastHash !== hash) {
 						lastSentHash.set(threadID, hash);
 						
-						let formatted = formatMessage(msg);
-						let hasAlerts = false;
-
-						if (msg.type === 'stock') {
-							const alerts = getAlerts(msg.text);
-							if (alerts) {
-								formatted = alerts + formatted;
-								hasAlerts = true;
-							}
-						}
-						
-						if (hasAlerts) {
-							api.sendMessage({ body: formatted, mentions: buildMentions(session.participantIDs || []) }, threadID);
+						const updateData = buildFullUpdate(msg);
+						if (updateData.hasAlerts) {
+							api.sendMessage({ body: updateData.text, mentions: buildMentions(session.participantIDs || []) }, threadID);
 						} else {
-							api.sendMessage(formatted, threadID);
+							api.sendMessage(updateData.text, threadID);
 						}
 					}
 				}
