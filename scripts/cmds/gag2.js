@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const TELEGRAM_CHANNEL = "growagardenlivestock";
+const TELEGRAM_CHANNEL = "growagarden2stock";
 const TZ = "Asia/Manila";
 let pollTimer = null;
 
