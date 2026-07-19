@@ -1,4 +1,4 @@
-Const axios = require('axios');
+const axios = require('axios');
 
 const TELEGRAM_CHANNEL = "growagardenlivestock";
 const TZ = "Asia/Manila";
@@ -26,7 +26,6 @@ const ALL_GAME_ITEMS = {
 		"Seesaw Crate", "Conveyor Crate", "Boombox Crate", "Teleporter Pad Crate", "Fence Crate"
 	],
 	"Moon & Weather 🌙": [
-		// Longest items first for accurate parsing!
 		"Rainbowmoon", "Megamoon", "Bloodmoon", "Goldmoon", "Sunburst", 
 		"Snowfall", "Rainbow", "Meteor", "Aurora", "Rain", "Snow"
 	]
@@ -54,7 +53,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.3",
+		version: "5.4",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock & Last seen tracker for Grow A Garden",
@@ -88,7 +87,7 @@ module.exports = {
 
 		if (body === "now" || body === "") {
 			const latestMsg = await updateChannelData();
-			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
+			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram! Please try again in a moment.");
 			
 			// Send message 1 (Stock), then message 2 (Last Seen)
 			sendUpdates(api, threadID, latestMsg, event.participantIDs || []);
@@ -102,13 +101,14 @@ module.exports = {
 async function fetchChannelHistory() {
 	try {
 		const res = await axios.get(`https://t.me/s/${TELEGRAM_CHANNEL}`, {
-			headers: { "User-Agent": "Mozilla/5.0" },
+			headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
 			timeout: 15000
 		});
 
 		const html = res.data;
 		const messages = [];
-		const msgRegex = /data-post="([^"]+)"[\s\S]*?<div class="[^"]*js-message_text[^"]*"[^>]*>([\s\S]*?)<\/div>[\s\S]*?<time datetime="([^"]+)"/g;
+		// More reliable regex to catch the specific Telegram Web HTML structure
+		const msgRegex = /<div class="tgme_widget_message[^>]+data-post="([^"]+)"[\s\S]*?<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>[\s\S]*?<time datetime="([^"]+)"/g;
 
 		let match;
 		while ((match = msgRegex.exec(html)) !== null) {
@@ -138,6 +138,7 @@ async function fetchChannelHistory() {
 		messages.sort((a, b) => a.id - b.id);
 		return messages;
 	} catch (e) {
+		console.error("[TGStock] Error fetching channel history:", e.message);
 		return [];
 	}
 }
@@ -156,9 +157,7 @@ async function updateChannelData() {
 		if (upperText.includes('SHOP STOCK')) {
 			latestStock = msg;
 			updateLastSeenDB(msg.text, msg.timestamp, false);
-		}
-		
-		if (upperText.includes('WEATHER')) {
+		} else if (upperText.includes('WEATHER') || upperText.includes('MOON:') || upperText.includes('EVENT:')) {
 			latestWeather = msg;
 			updateLastSeenDB(msg.text, msg.timestamp, false);
 		}
@@ -167,18 +166,19 @@ async function updateChannelData() {
 	// Determine the absolute newest message in the channel
 	const latest = (latestWeather && latestWeather.id > (latestStock?.id || 0)) ? latestWeather : latestStock;
 	if (latest) {
-		latest.type = latest.text.toUpperCase().includes('WEATHER') ? 'weather' : 'stock';
+		const upperText = latest.text.toUpperCase();
+		latest.type = (upperText.includes('WEATHER') || upperText.includes('MOON:') || upperText.includes('EVENT:')) ? 'weather' : 'stock';
 	}
 
-	// Reset current items
+	// Reset current active items for the live status
 	currentStockItems.clear();
 	
-	// Shop Stock items are ALWAYS added to current stock until the next Shop Stock
+	// Shop Stock items are ALWAYS added to current stock until the next Shop Stock wipes them
 	if (latestStock) {
 		updateLastSeenDB(latestStock.text, latestStock.timestamp, true);
 	}
 	
-	// Weather is ONLY set to "Active" (added to current) IF it is the absolute newest message
+	// Weather is ONLY set to "Active" IF it is the absolute newest message
 	if (latestWeather) {
 		const isWeatherActive = (latest && latestWeather.id === latest.id);
 		updateLastSeenDB(latestWeather.text, latestWeather.timestamp, isWeatherActive);
@@ -190,10 +190,10 @@ async function updateChannelData() {
 function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 	const lines = text.split('\n');
 	let currentCategory = null;
-
-	// Set category explicitly if the message is a Weather update
 	const upperText = text.toUpperCase();
-	if (upperText.includes('WEATHER')) {
+
+	// Pre-set category if the whole message is a dedicated weather/event broadcast
+	if (upperText.includes('WEATHER') || upperText.includes('MOON:') || upperText.includes('EVENT:')) {
 		currentCategory = 'Moon & Weather 🌙';
 	}
 
@@ -203,16 +203,15 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 		if (upperLine.includes('SEED SHOP')) currentCategory = 'Seed 🌱';
 		else if (upperLine.includes('GEAR SHOP')) currentCategory = 'Gear ⚙️';
 		else if (upperLine.includes('CRATE SHOP')) currentCategory = 'Crate 📦';
-		else if (upperLine.includes('MOON') || upperLine.includes('EVENT') || upperLine.includes('WEATHER')) {
+		// Strict check to prevent matching "Moon Bloom" as the Moon category header
+		else if (upperLine.includes('MOON:') || upperLine.includes('EVENT:') || upperLine.includes('WEATHER UPDATE')) {
 			currentCategory = 'Moon & Weather 🌙';
 		}
 		else if (currentCategory) {
 			let itemName = "";
 			
-			// --- FIX: Stronger Moon & Weather detection ---
 			if (currentCategory === 'Moon & Weather 🌙') {
 				for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
-					// Removes spaces/dashes to catch variations like "Blood Moon", "Bloodmoon", etc.
 					const normalizedLine = line.toLowerCase().replace(/[\s-]/g, '');
 					const normalizedKnown = knownItem.toLowerCase().replace(/[\s-]/g, '');
 					if (normalizedLine.includes(normalizedKnown)) {
@@ -221,7 +220,6 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 					}
 				}
 			} else {
-				// Normal Shop detection
 				if (line.includes(':')) {
 					itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[✅❌🕒]\s*/, '').trim();
 				} else {
