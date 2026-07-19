@@ -8,7 +8,7 @@ const lastSentHash = new Map();
 
 const TARGET_ITEMS = [
 	"Dragon's Breath",
-	"Venom Spitter",
+	"Venum Spitter",
 	"Star Fruit",
 	"Moon Bloom",
 	"Hypno Bloom",
@@ -17,15 +17,21 @@ const TARGET_ITEMS = [
 	"Super Sprinkler",
 	"Legendary Sprinkler",
 	"Rare Sprinkler",
-	"Venus Fly Trap",
-	"Pomegranate",
-	"Sunflower"
+	"Poison Apple",
+	"Mushroom",
+	"Cherry",
+	"Fire Fern",
+	"Basic Pot",
+	"Strawberry Sniper",
+	"Owner Door Crate",
+	"Teleporter Pad Crate",
+	"Fence Crate"
 ];
 
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "2.2",
+		version: "2.3",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock Grow A Garden from public Telegram channel",
@@ -228,9 +234,11 @@ function getAlerts(text) {
 	}
 
 	const uniqueAlerts = [...new Set(alerts)];
+	// This keeps the @everyone string intact at the very top for highlighting
 	return uniqueAlerts.length > 0 ? "@everyone\n" + uniqueAlerts.join('\n') + '\n\n' : "";
 }
 
+// Maps all users to the exact string "@everyone" so nothing else gets highlighted
 function buildMentions(participantIDs) {
 	let mentions = [];
 	for (const uid of participantIDs) {
