@@ -158,21 +158,30 @@ async function updateChannelData() {
 			updateLastSeenDB(msg.text, msg.timestamp, false);
 		}
 		
-		// Ensure weather items also update the database
 		if (upperText.includes('WEATHER')) {
 			latestWeather = msg;
 			updateLastSeenDB(msg.text, msg.timestamp, false);
 		}
 	}
 
-	// Reset current items, then rebuild based ONLY on the absolute latest stock & weather
-	currentStockItems.clear();
-	if (latestStock) updateLastSeenDB(latestStock.text, latestStock.timestamp, true);
-	if (latestWeather) updateLastSeenDB(latestWeather.text, latestWeather.timestamp, true);
-
-	const latest = latestWeather && latestWeather.id > (latestStock?.id || 0) ? latestWeather : latestStock;
+	// Determine the absolute newest message in the channel
+	const latest = (latestWeather && latestWeather.id > (latestStock?.id || 0)) ? latestWeather : latestStock;
 	if (latest) {
 		latest.type = latest.text.toUpperCase().includes('WEATHER') ? 'weather' : 'stock';
+	}
+
+	// Reset current items
+	currentStockItems.clear();
+	
+	// Shop Stock items are ALWAYS added to current stock until the next Shop Stock
+	if (latestStock) {
+		updateLastSeenDB(latestStock.text, latestStock.timestamp, true);
+	}
+	
+	// Weather is ONLY set to "Active" (added to current) IF it is the absolute newest message
+	if (latestWeather) {
+		const isWeatherActive = (latest && latestWeather.id === latest.id);
+		updateLastSeenDB(latestWeather.text, latestWeather.timestamp, isWeatherActive);
 	}
 
 	return latest;
@@ -203,7 +212,7 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 			if (line.includes(':')) {
 				itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[✅❌🕒]\s*/, '').trim();
 			} else {
-				// Fallback: If weather drops don't use colons, attempt to recognize the exact item name in the line
+				// Fallback: If weather drops don't use colons
 				for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
 					if (line.toLowerCase().includes(knownItem.toLowerCase())) {
 						itemName = knownItem;
@@ -213,12 +222,10 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 			}
 
 			if (itemName && lastSeenDB[currentCategory] !== undefined) {
-				// Initialize item if it somehow doesn't exist yet
 				if (lastSeenDB[currentCategory][itemName] === undefined) {
 					lastSeenDB[currentCategory][itemName] = 0; 
 				}
 				
-				// Update to the most recent timestamp
 				lastSeenDB[currentCategory][itemName] = Math.max(lastSeenDB[currentCategory][itemName], timestamp);
 				
 				if (addToCurrent) {
