@@ -3,8 +3,19 @@ const axios = require('axios');
 const TELEGRAM_CHANNEL = "growagardenlivestock";
 const TZ = "Asia/Manila";
 let pollTimer = null;
+let seenEditTimer = null;
+
 const activeSessions = new Map();
 const lastSentHash = new Map();
+const activeSeenMsgs = new Map();
+
+const lastSeenDB = {
+	"Seed 🌱": {},
+	"Gear ⚙️": {},
+	"Crate 📦": {},
+	"Moon & Event 🌙": {}
+};
+let currentStockItems = new Set();
 
 const TARGET_ITEMS = [
 	"Dragon's Breath",
@@ -31,12 +42,12 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "2.3",
+		version: "2.4",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock Grow A Garden from public Telegram channel",
 		category: "stock",
-		guide: "{pn} on - Enable auto stock\n{pn} off - Disable auto stock\n{pn} now - View current stock"
+		guide: "{pn} on - Enable auto stock\n{pn} off - Disable auto stock\n{pn} now - View current stock\n{pn} seen - View live last seen items"
 	},
 
 	onStart: async ({ message, event, args, api }) => {
@@ -84,7 +95,25 @@ module.exports = {
 			}
 		}
 
-		message.reply("❌ Commands: on, off, now");
+		if (body === "seen") {
+			if (Object.keys(lastSeenDB["Seed 🌱"]).length === 0) {
+				const stockMsg = await fetchLatestMessage();
+				if (stockMsg && stockMsg.type === 'stock') {
+					updateLastSeenDB(stockMsg.text);
+				}
+			}
+			
+			const seenText = buildSeenMessage();
+			api.sendMessage(seenText, threadID, (err, info) => {
+				if (!err && info) {
+					activeSeenMsgs.set(info.messageID, threadID);
+					startSeenEditor(api);
+				}
+			});
+			return;
+		}
+
+		message.reply("❌ Commands: on, off, now, seen");
 	}
 };
 
@@ -167,6 +196,64 @@ async function fetchLatestMessage() {
 	}
 }
 
+function updateLastSeenDB(text) {
+	const lines = text.split('\n');
+	let currentCategory = null;
+	let newStock = new Set();
+	const now = Date.now();
+
+	for (const line of lines) {
+		if (line.includes('SEED SHOP')) currentCategory = 'Seed 🌱';
+		else if (line.includes('GEAR SHOP')) currentCategory = 'Gear ⚙️';
+		else if (line.includes('CRATE SHOP')) currentCategory = 'Crate 📦';
+		else if (line.includes('MOON') || line.includes('EVENT')) currentCategory = 'Moon & Event 🌙';
+		else if (line.includes(':') && currentCategory) {
+			let itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
+			if (itemName) {
+				newStock.add(itemName);
+				lastSeenDB[currentCategory][itemName] = now;
+			}
+		}
+	}
+	currentStockItems = newStock;
+}
+
+function getTimeAgo(ms) {
+	if (ms < 0) return "Just now";
+	const sec = Math.floor(ms / 1000);
+	if (sec < 60) return `${sec} Second ago`;
+	
+	const min = Math.floor(sec / 60);
+	const hr = Math.floor(min / 60);
+	
+	if (hr > 0) {
+		const remMin = min % 60;
+		return `${hr} Hour${remMin > 0 ? `,${remMin} Minute` : ''} ago`;
+	}
+	return `${min} Minute ago`;
+}
+
+function buildSeenMessage() {
+	let out = "Last seen\n\n";
+	
+	for (const [category, items] of Object.entries(lastSeenDB)) {
+		if (Object.keys(items).length === 0) continue;
+		out += `${category}:\n`;
+		
+		for (const [itemName, timestamp] of Object.entries(items)) {
+			if (currentStockItems.has(itemName)) {
+				out += `${itemName}:On Stock\n`;
+			} else {
+				out += `${itemName}:${getTimeAgo(Date.now() - timestamp)}\n`;
+			}
+		}
+		out += "\n";
+	}
+	
+	if (out === "Last seen\n\n") return "❌ No data recorded yet. Waiting for restock.";
+	return out.trim();
+}
+
 function formatMessage(data) {
 	if (!data) return "❌ No data available!";
 
@@ -234,11 +321,9 @@ function getAlerts(text) {
 	}
 
 	const uniqueAlerts = [...new Set(alerts)];
-	// This keeps the @everyone string intact at the very top for highlighting
 	return uniqueAlerts.length > 0 ? "@everyone\n" + uniqueAlerts.join('\n') + '\n\n' : "";
 }
 
-// Maps all users to the exact string "@everyone" so nothing else gets highlighted
 function buildMentions(participantIDs) {
 	let mentions = [];
 	for (const uid of participantIDs) {
@@ -250,6 +335,32 @@ function buildMentions(participantIDs) {
 	return mentions;
 }
 
+function startSeenEditor(api) {
+	if (seenEditTimer) return;
+	
+	seenEditTimer = setInterval(() => {
+		if (activeSeenMsgs.size === 0) {
+			clearInterval(seenEditTimer);
+			seenEditTimer = null;
+			return;
+		}
+
+		const updatedText = buildSeenMessage();
+		
+		for (const [messageID, threadID] of activeSeenMsgs.entries()) {
+			try {
+				if (typeof api.editMessage === "function") {
+					api.editMessage(updatedText, messageID, (err) => {
+						if (err) activeSeenMsgs.delete(messageID);
+					});
+				}
+			} catch (e) {
+				activeSeenMsgs.delete(messageID);
+			}
+		}
+	}, 15000); 
+}
+
 function startPolling(api) {
 	if (pollTimer) return;
 	console.log("[TGStock] Started polling Telegram channel...");
@@ -258,6 +369,13 @@ function startPolling(api) {
 		const msg = await fetchLatestMessage();
 		if (msg) {
 			const hash = JSON.stringify({ id: msg.id, type: msg.type });
+			
+			if (msg.type === 'stock') {
+				const isNewMsg = hash !== lastSentHash.values().next().value;
+				if (isNewMsg) {
+					updateLastSeenDB(msg.text);
+				}
+			}
 			
 			for (const [threadID, session] of activeSessions.entries()) {
 				if (session.enabled) {
