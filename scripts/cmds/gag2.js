@@ -317,7 +317,12 @@ function buildLastSeenMessage() {
 		for (const itemName of itemsList) {
 			const timestamp = lastSeenDB[category][itemName];
 			if (currentStockItems.has(itemName)) {
-				out += `✅ ${itemName}: On Stock\n`;
+				// Check if the item belongs to Moon & Weather to change the display text
+				if (category === "Moon & Weather 🌙") {
+					out += `✅ ${itemName}: Active\n`;
+				} else {
+					out += `✅ ${itemName}: On Stock\n`;
+				}
 			} else if (timestamp === 0) {
 				out += `❌ ${itemName}: Never Seen\n`;
 			} else {
