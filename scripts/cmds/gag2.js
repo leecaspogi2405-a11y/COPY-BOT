@@ -9,12 +9,39 @@ const activeSessions = new Map();
 const lastSentHash = new Map();
 const activeSeenMsgs = new Map();
 
+const ALL_GAME_ITEMS = {
+	"Seed 🌱": [
+		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Bamboo", "Corn", "Banana", 
+		"Cactus", "Grape", "Pineapple", "Mushroom", "Apple", "Dragon's Breath", "Venum Spitter", 
+		"Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom", "Poison Apple", "Cherry", "Fire Fern"
+	],
+	"Gear ⚙️": [
+		"Common Watering Can", "Trowel", "Common Sprinkler", "Rare Sprinkler", "Super Watering Can", 
+		"Super Sprinkler", "Legendary Sprinkler", "Gnome", "Shrink Mushroom", "Invisible Mushroom", 
+		"Jump Mushroom", "Speed Mushroom", "Basic Pot", "Strawberry Sniper"
+	],
+	"Crate 📦": [
+		"Bench Crate", "Bridge Crate", "Seesaw Crate", "Sign Crate", "Ladder Crate", "Light Crate", 
+		"Owner Door Crate", "Roleplay Crate", "Spring Crate", "Teleporter Pad Crate", "Fence Crate"
+	],
+	"Moon & Event 🌙": [
+		"Gold Moon", "Red Moon", "Blue Moon", "Blood Moon"
+	]
+};
+
 const lastSeenDB = {
 	"Seed 🌱": {},
 	"Gear ⚙️": {},
 	"Crate 📦": {},
 	"Moon & Event 🌙": {}
 };
+
+for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
+	for (const item of items) {
+		lastSeenDB[category][item] = 0;
+	}
+}
+
 let currentStockItems = new Set();
 
 const TARGET_ITEMS = [
@@ -42,7 +69,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "2.4",
+		version: "2.5",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock Grow A Garden from public Telegram channel",
@@ -96,11 +123,9 @@ module.exports = {
 		}
 
 		if (body === "seen") {
-			if (Object.keys(lastSeenDB["Seed 🌱"]).length === 0) {
-				const stockMsg = await fetchLatestMessage();
-				if (stockMsg && stockMsg.type === 'stock') {
-					updateLastSeenDB(stockMsg.text);
-				}
+			const stockMsg = await fetchLatestMessage();
+			if (stockMsg && stockMsg.type === 'stock') {
+				updateLastSeenDB(stockMsg.text);
 			}
 			
 			const seenText = buildSeenMessage();
@@ -219,12 +244,20 @@ function updateLastSeenDB(text) {
 }
 
 function getTimeAgo(ms) {
-	if (ms < 0) return "Just now";
 	const sec = Math.floor(ms / 1000);
 	if (sec < 60) return `${sec} Second ago`;
 	
 	const min = Math.floor(sec / 60);
 	const hr = Math.floor(min / 60);
+	const days = Math.floor(hr / 24);
+	const weeks = Math.floor(days / 7);
+	const months = Math.floor(days / 30);
+	const years = Math.floor(days / 365);
+	
+	if (years > 0) return `${years} Year ago`;
+	if (months > 0) return `${months} Month ago`;
+	if (weeks > 0) return `${weeks} Week ago`;
+	if (days > 0) return `${days} Day ago`;
 	
 	if (hr > 0) {
 		const remMin = min % 60;
@@ -243,6 +276,8 @@ function buildSeenMessage() {
 		for (const [itemName, timestamp] of Object.entries(items)) {
 			if (currentStockItems.has(itemName)) {
 				out += `${itemName}:On Stock\n`;
+			} else if (timestamp === 0) {
+				out += `${itemName}:Never Seen\n`;
 			} else {
 				out += `${itemName}:${getTimeAgo(Date.now() - timestamp)}\n`;
 			}
@@ -250,7 +285,6 @@ function buildSeenMessage() {
 		out += "\n";
 	}
 	
-	if (out === "Last seen\n\n") return "❌ No data recorded yet. Waiting for restock.";
 	return out.trim();
 }
 
