@@ -7,7 +7,7 @@ let pollTimer = null;
 const activeSessions = new Map();
 const lastSentHash = new Map();
 
-// Updated with your exact lineup + corrected items
+// Updated category to "Moon & Weather 🌙"
 const ALL_GAME_ITEMS = {
 	"Seed 🌱": [
 		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Bamboo", "Corn", "Banana", 
@@ -26,20 +26,16 @@ const ALL_GAME_ITEMS = {
 		"Owner Door Crate", "Spring Crate", "Bridge Crate", "Roleplay Crate", "Picture Frame Crate", 
 		"Seesaw Crate", "Conveyor Crate", "Boombox Crate", "Teleporter Pad Crate", "Fence Crate"
 	],
-	"Moon & Event 🌙": [
+	"Moon & Weather 🌙": [
 		"Gold Moon", "Blood Moon", "Sun Burst", "Rain", 
 		"Rainbow", "Meteor", "Snow", "Aurora", "Snow Fall"
 	]
 };
 
-const lastSeenDB = {
-	"Seed 🌱": {},
-	"Gear ⚙️": {},
-	"Crate 📦": {},
-	"Moon & Event 🌙": {}
-};
-
+// Dynamically generate the DB structure based on ALL_GAME_ITEMS
+const lastSeenDB = {};
 for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
+	lastSeenDB[category] = {};
 	for (const item of items) {
 		lastSeenDB[category][item] = 0;
 	}
@@ -58,7 +54,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.1",
+		version: "5.2",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock & Last seen tracker for Grow A Garden",
@@ -78,7 +74,7 @@ module.exports = {
 		if (body === "on") {
 			activeSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
 			if (!pollTimer) startPolling(api);
-			return message.reply("✅ Auto stock + Last Seen tracker enabled sa chat na ito!");
+			return message.reply("✅ Auto stock & Last Seen tracker enabled for this chat!");
 		}
 
 		if (body === "off") {
@@ -153,43 +149,84 @@ async function updateChannelData() {
 	let latestStock = null;
 	let latestWeather = null;
 
+	// Process all historical messages to build correct timestamps
 	for (const msg of messages) {
-		if (msg.text.includes('SHOP STOCK')) {
-			updateLastSeenDB(msg.text, msg.timestamp, false);
+		const upperText = msg.text.toUpperCase();
+		
+		if (upperText.includes('SHOP STOCK')) {
 			latestStock = msg;
+			updateLastSeenDB(msg.text, msg.timestamp, false);
 		}
-		if (msg.text.includes('Weather')) latestWeather = msg;
+		
+		// Ensure weather items also update the database
+		if (upperText.includes('WEATHER')) {
+			latestWeather = msg;
+			updateLastSeenDB(msg.text, msg.timestamp, false);
+		}
 	}
 
+	// Reset current items, then rebuild based ONLY on the absolute latest stock & weather
+	currentStockItems.clear();
 	if (latestStock) updateLastSeenDB(latestStock.text, latestStock.timestamp, true);
+	if (latestWeather) updateLastSeenDB(latestWeather.text, latestWeather.timestamp, true);
 
 	const latest = latestWeather && latestWeather.id > (latestStock?.id || 0) ? latestWeather : latestStock;
-	if (latest) latest.type = latest.text.includes('Weather') ? 'weather' : 'stock';
+	if (latest) {
+		latest.type = latest.text.toUpperCase().includes('WEATHER') ? 'weather' : 'stock';
+	}
 
 	return latest;
 }
 
-function updateLastSeenDB(text, timestamp, isLatest) {
+function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 	const lines = text.split('\n');
 	let currentCategory = null;
-	let tempStock = new Set();
+
+	// Set category explicitly if the message is a Weather update
+	const upperText = text.toUpperCase();
+	if (upperText.includes('WEATHER')) {
+		currentCategory = 'Moon & Weather 🌙';
+	}
 
 	for (const line of lines) {
-		if (line.includes('SEED SHOP')) currentCategory = 'Seed 🌱';
-		else if (line.includes('GEAR SHOP')) currentCategory = 'Gear ⚙️';
-		else if (line.includes('CRATE SHOP')) currentCategory = 'Crate 📦';
-		else if (line.includes('MOON') || line.includes('EVENT')) currentCategory = 'Moon & Event 🌙';
-		else if (line.includes(':') && currentCategory) {
-			let itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[✅❌🕒]\s*/, '').trim();
-			if (itemName) {
-				if (lastSeenDB[currentCategory][itemName] === undefined) lastSeenDB[currentCategory][itemName] = 0; 
-				lastSeenDB[currentCategory][itemName] = timestamp;
-				tempStock.add(itemName);
+		const upperLine = line.toUpperCase();
+		
+		if (upperLine.includes('SEED SHOP')) currentCategory = 'Seed 🌱';
+		else if (upperLine.includes('GEAR SHOP')) currentCategory = 'Gear ⚙️';
+		else if (upperLine.includes('CRATE SHOP')) currentCategory = 'Crate 📦';
+		else if (upperLine.includes('MOON') || upperLine.includes('EVENT') || upperLine.includes('WEATHER')) {
+			currentCategory = 'Moon & Weather 🌙';
+		}
+		else if (currentCategory) {
+			let itemName = "";
+			
+			if (line.includes(':')) {
+				itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[✅❌🕒]\s*/, '').trim();
+			} else {
+				// Fallback: If weather drops don't use colons, attempt to recognize the exact item name in the line
+				for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
+					if (line.toLowerCase().includes(knownItem.toLowerCase())) {
+						itemName = knownItem;
+						break;
+					}
+				}
+			}
+
+			if (itemName && lastSeenDB[currentCategory] !== undefined) {
+				// Initialize item if it somehow doesn't exist yet
+				if (lastSeenDB[currentCategory][itemName] === undefined) {
+					lastSeenDB[currentCategory][itemName] = 0; 
+				}
+				
+				// Update to the most recent timestamp
+				lastSeenDB[currentCategory][itemName] = Math.max(lastSeenDB[currentCategory][itemName], timestamp);
+				
+				if (addToCurrent) {
+					currentStockItems.add(itemName);
+				}
 			}
 		}
 	}
-
-	if (isLatest) currentStockItems = tempStock;
 }
 
 function getTimeAgo(ms) {
@@ -312,7 +349,7 @@ function sendUpdates(api, threadID, msg, participantIDs) {
 	const msg2 = buildLastSeenMessage();
 	const sendPayload = hasAlerts ? { body: msg1.trim(), mentions: buildMentions(participantIDs) } : msg1.trim();
 
-	// Sends First Message (Stock), once done, immediately sends Second Message (Last Seen)
+	// Sends First Message (Stock/Weather), once done, immediately sends Second Message (Last Seen)
 	api.sendMessage(sendPayload, threadID, (err) => {
 		if (!err) {
 			api.sendMessage(msg2, threadID);
@@ -336,8 +373,6 @@ function startPolling(api) {
 					const lastHash = lastSentHash.get(threadID);
 					if (lastHash !== hash) {
 						lastSentHash.set(threadID, hash);
-						
-						// Ito yung nagpapadala ng dalawang chat consecutively
 						sendUpdates(api, threadID, msg, session.participantIDs || []);
 					}
 				}
