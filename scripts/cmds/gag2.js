@@ -44,7 +44,7 @@ for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
 let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
-// Added missing items for notification pings
+// Target items for notification pings
 const TARGET_ITEMS = [
 	"Dragon's Breath", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
 	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
@@ -57,10 +57,10 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.7",
+		version: "5.8",
 		author: "Dev Xdragon",
 		role: 1,
-		description: "Auto stock & Last seen tracker with real history tracking",
+		description: "Auto stock & Last seen tracker with real history tracking & strict matching",
 		category: "stock",
 		guide: "{pn} on - Enable auto stock\n{pn} off - Disable auto stock\n{pn} now - View live stock & last seen dashboard"
 	},
@@ -70,7 +70,6 @@ module.exports = {
 		const threadID = event.threadID;
 
 		if (!isDatabaseInitialized) {
-			// Perform a deep history scan on first load to get the REAL last seen times
 			await updateChannelData(true); 
 			isDatabaseInitialized = true;
 		}
@@ -94,7 +93,6 @@ module.exports = {
 			const latestMsg = await updateChannelData(false);
 			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram! Please try again in a moment.");
 			
-			// Send message 1 (Stock), then message 2 (Last Seen)
 			sendUpdates(api, threadID, latestMsg, event.participantIDs || []);
 			return;
 		}
@@ -103,7 +101,6 @@ module.exports = {
 	}
 };
 
-// Fetches channel history. Uses pagination to fetch OLD messages if deepScan = true
 async function fetchChannelHistory(pages = 1) {
 	const allMessages = [];
 	let beforeId = null;
@@ -160,7 +157,6 @@ async function fetchChannelHistory(pages = 1) {
 		}
 	}
 	
-	// Filter duplicates and sort chronologically
 	const uniqueMessages = [];
 	const seenIds = new Set();
 	for (const m of allMessages) {
@@ -175,7 +171,6 @@ async function fetchChannelHistory(pages = 1) {
 }
 
 async function updateChannelData(isInit = false) {
-	// Fetch up to 10 pages on initialization (~200 historical messages) to get accurate old timestamps
 	const pagesToFetch = isInit ? 10 : 1;
 	const messages = await fetchChannelHistory(pagesToFetch);
 	if (!messages || messages.length === 0) return null;
@@ -183,7 +178,6 @@ async function updateChannelData(isInit = false) {
 	let latestStock = null;
 	let latestWeather = null;
 
-	// Process all historical messages to build correct timestamps
 	for (const msg of messages) {
 		const upperText = msg.text.toUpperCase();
 		
@@ -196,22 +190,18 @@ async function updateChannelData(isInit = false) {
 		}
 	}
 
-	// Determine the absolute newest message in the channel
 	const latest = (latestWeather && latestWeather.id > (latestStock?.id || 0)) ? latestWeather : latestStock;
 	if (latest) {
 		const upperText = latest.text.toUpperCase();
 		latest.type = (upperText.includes('WEATHER') || upperText.includes('MOON:') || upperText.includes('EVENT:')) ? 'weather' : 'stock';
 	}
 
-	// Reset current active items for the live status
 	currentStockItems.clear();
 	
-	// Shop Stock items are ALWAYS added to current stock until the next Shop Stock wipes them
 	if (latestStock) {
 		updateLastSeenDB(latestStock.text, latestStock.timestamp, true);
 	}
 	
-	// Weather is ONLY set to "Active" IF it is the absolute newest message
 	if (latestWeather) {
 		const isWeatherActive = (latest && latestWeather.id === latest.id);
 		updateLastSeenDB(latestWeather.text, latestWeather.timestamp, isWeatherActive);
@@ -225,7 +215,6 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 	let currentCategory = null;
 	const upperText = text.toUpperCase();
 
-	// Pre-set category if the whole message is a dedicated weather/event broadcast
 	if (upperText.includes('WEATHER') || upperText.includes('MOON:') || upperText.includes('EVENT:')) {
 		currentCategory = 'Moon & Weather 🌙';
 	}
@@ -253,7 +242,14 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 				}
 			} else {
 				if (line.includes(':')) {
-					itemName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').replace(/^[✅❌🕒]\s*/, '').trim();
+					// Strict check for item name in DB updates
+					const rawName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
+					for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
+						if (rawName.toLowerCase() === knownItem.toLowerCase()) {
+							itemName = knownItem;
+							break;
+						}
+					}
 				} else {
 					for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
 						if (line.toLowerCase().includes(knownItem.toLowerCase())) {
@@ -279,7 +275,6 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 	}
 }
 
-// Converts timestamp into Exact Date format (e.g. July 19, 3:15 AM)
 function formatExactDate(ms) {
 	if (ms <= 0) return "";
 	const d = new Date(ms);
@@ -315,7 +310,7 @@ function getAlerts(msg) {
 	const alerts = [];
 	const lines = msg.text.split('\n');
 
-	// Sort TARGET_ITEMS by length descending to prevent substring errors (e.g., Rainbowmoon matching Rainbow first)
+	// Sort targets so longer names match first for weather
 	const sortedTargets = [...TARGET_ITEMS].sort((a, b) => b.length - a.length);
 
 	for (const line of lines) {
@@ -324,19 +319,35 @@ function getAlerts(msg) {
 		
 		if (!line.includes(':') && !isWeatherLine) continue;
 
-		for (const item of sortedTargets) {
-			const normalizedTarget = item.toLowerCase().replace(/[\s-]/g, '');
-			const normalizedLine = line.toLowerCase().replace(/[\s-]/g, '');
+		if (isWeatherLine) {
+			for (const item of sortedTargets) {
+				const normalizedTarget = item.toLowerCase().replace(/[\s-]/g, '');
+				const normalizedLine = line.toLowerCase().replace(/[\s-]/g, '');
 
-			if (normalizedLine.includes(normalizedTarget)) {
-				if (isWeatherLine) {
+				if (normalizedLine.includes(normalizedTarget)) {
 					alerts.push(`⚠️ Active Event/Weather: ${item}!`);
-				} else if (line.includes(':')) {
+					break; 
+				}
+			}
+		} else if (line.includes(':')) {
+			const leftSide = line.split(':')[0].trim(); // Gets everything before the ':'
+			
+			// Extract Emoji (Matches everything before the first letter/number)
+			const emojiMatch = leftSide.match(/^[^a-zA-Z0-9]+/);
+			let originalEmoji = emojiMatch ? emojiMatch[0].replace(/[->]/g, '').trim() : '';
+			if (!originalEmoji) originalEmoji = '📦'; // Fallback only if no emoji exists
+			
+			// Extract Exact Name for STRICT Matching
+			const cleanName = leftSide.replace(/^[^a-zA-Z0-9]+/, '').trim();
+			
+			for (const item of sortedTargets) {
+				// STRICT EQUALITY MATCH! (Speed Mushroom vs Mushroom is fixed here)
+				if (cleanName.toLowerCase() === item.toLowerCase()) {
 					const qtyMatch = line.match(/:\s*x?(\d+)/i);
 					const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
-					alerts.push(`📦 ${pcs} ${item} on Stock!`);
+					alerts.push(`${originalEmoji} ${pcs} ${item} on Stock!`);
+					break;
 				}
-				break; // Stop checking other targets if one already matched this line
 			}
 		}
 	}
@@ -382,23 +393,22 @@ function buildLastSeenMessage() {
 	let out = "🟢 LIVE STOCK & LAST SEEN 🟢\n";
 	
 	for (const [category, itemsList] of Object.entries(ALL_GAME_ITEMS)) {
-		out += `\n【 ${category} 】\n\n`; // Double line break for category header
+		out += `\n【 ${category} 】\n\n`;
 		
 		for (const itemName of itemsList) {
 			const timestamp = lastSeenDB[category][itemName];
 			
 			if (currentStockItems.has(itemName)) {
 				if (category === "Moon & Weather 🌙") {
-					out += `✅ ${itemName}: Active\n\n`; // Double line break for spacing & Emoji restored
+					out += `✅ ${itemName}: Active\n\n`; 
 				} else {
-					out += `✅ ${itemName}: On Stock\n\n`; // Double line break for spacing & Emoji restored
+					out += `✅ ${itemName}: On Stock\n\n`; 
 				}
 			} else if (timestamp === 0) {
-				out += `❌ ${itemName}: Never Seen\n\n`; // Double line break for spacing & Emoji restored
+				out += `❌ ${itemName}: Never Seen\n\n`; 
 			} else {
-				// Exact Timestamp Details formatted cleanly & Emoji restored
 				const exactDateText = formatExactDate(timestamp);
-				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)} (${exactDateText})\n\n`; // Double line break for spacing
+				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)} (${exactDateText})\n\n`; 
 			}
 		}
 	}
@@ -412,7 +422,6 @@ function sendUpdates(api, threadID, msg, participantIDs) {
 	let msg1 = "";
 	let hasAlerts = false;
 	
-	// Generate Alerts regardless of whether it's stock or weather
 	const alerts = getAlerts(msg);
 	if (alerts) {
 		msg1 += alerts;
