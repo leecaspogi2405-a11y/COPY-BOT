@@ -24,8 +24,8 @@ const ALL_GAME_ITEMS = {
 		"Owner Door Crate", "Roleplay Crate", "Spring Crate", "Teleporter Pad Crate", "Fence Crate"
 	],
 	"Moon & Event 🌙": [
-		"Gold Moon", "Red Moon", "Blue Moon", "Blood Moon",
-		"Sun Burst", "Rain", "Rainbow", "Meteor Shower", "Snow"
+		"Gold Moon", "Blood Moon", "Sun Burst", "Rain", 
+		"Rainbow", "Meteor Shower", "Snow", "Aurora"
 	]
 };
 
@@ -55,7 +55,7 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.0",
+		version: "5.1",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock & Last seen tracker for Grow A Garden",
