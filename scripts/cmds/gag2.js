@@ -5,6 +5,7 @@ const TZ = "Asia/Manila";
 const LAST_SEEN_GROUP_LINK = "https://m.me/j/Abad8QInPFA48lRu/?send_source=gc%3Acopy_invite_link_t";
 
 let pollTimer = null;
+let seenTimer = null; // New timer specifically for the 5-minute Last Seen loop
 
 // Separate session maps for Stock Group and Last Seen Group
 const activeStockSessions = new Map();
@@ -49,7 +50,7 @@ for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
 let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
-// Notification Target Items
+// Notification Target Items (Strict Matching)
 const TARGET_ITEMS = [
 	"Dragon's Breath", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
 	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
@@ -62,17 +63,16 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "6.0",
+		version: "6.1",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Auto stock and Last seen tracker with dual-group support",
 		category: "stock",
-		guide: "Stock Group:\n{pn} on - Enable stock updates\n{pn} off - Disable stock updates\n{pn} now - View current stock\n\nLast Seen Group:\n!gag2seen on - Enable last seen dashboard\n!gag2seen off - Disable last seen dashboard\n!gag2seen - View live last seen"
+		guide: "Stock Group:\n{pn} on - Enable stock\n{pn} off - Disable stock\n{pn} now - View stock\n\nLast Seen Group:\n{pn} seen on - Enable 5-min last seen\n{pn} seen off - Disable last seen\n{pn} seen - View live last seen"
 	},
 
 	onStart: async ({ message, event, args, api }) => {
-		const fullCmd = event.body ? event.body.trim().toLowerCase() : "";
-		const subCmd = args[0] ? args[0].toLowerCase() : "";
+		const body = args.join(" ").toLowerCase();
 		const threadID = event.threadID;
 
 		// Deep history scan on first run to fetch up to 1 month of past stock records
@@ -82,40 +82,41 @@ module.exports = {
 		}
 
 		// --- LAST SEEN GROUP COMMANDS ---
-		if (fullCmd.startsWith("!gag2seen")) {
-			if (subCmd === "on") {
-				activeSeenSessions.set(threadID, { enabled: true });
-				if (!pollTimer) startPolling(api);
-				return message.reply("✅ Last Seen live dashboard enabled for this group!");
+		if (body === "seen on") {
+			activeSeenSessions.set(threadID, { enabled: true });
+			if (!seenTimer) startSeenTimer(api);
+			return message.reply("✅ Last Seen dashboard will now be sent every 5 minutes here!");
+		}
+		if (body === "seen off") {
+			activeSeenSessions.delete(threadID);
+			if (activeSeenSessions.size === 0 && seenTimer) {
+				clearInterval(seenTimer);
+				seenTimer = null;
 			}
-			if (subCmd === "off") {
-				activeSeenSessions.delete(threadID);
-				return message.reply("✅ Last Seen updates disabled for this group!");
-			}
-			
-			// Display Last Seen Dashboard directly
-			const latestMsg = await updateChannelData(false);
-			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
+			return message.reply("✅ Last Seen 5-minute loop disabled!");
+		}
+		if (body === "seen" || body === "seen now") {
+			await updateChannelData(false);
 			return message.reply(buildLastSeenMessage());
 		}
 
 		// --- STOCK GROUP COMMANDS ---
-		if (subCmd === "on") {
+		if (body === "on") {
 			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
 			if (!pollTimer) startPolling(api);
 			return message.reply("✅ Auto stock updates enabled for this group!");
 		}
 
-		if (subCmd === "off") {
+		if (body === "off") {
 			activeStockSessions.delete(threadID);
-			if (activeStockSessions.size === 0 && activeSeenSessions.size === 0 && pollTimer) {
+			if (activeStockSessions.size === 0 && pollTimer) {
 				clearInterval(pollTimer);
 				pollTimer = null;
 			}
 			return message.reply("✅ Auto stock disabled!");
 		}
 
-		if (subCmd === "now" || subCmd === "") {
+		if (body === "now" || body === "") {
 			const latestMsg = await updateChannelData(false);
 			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
 			
@@ -123,7 +124,7 @@ module.exports = {
 			return;
 		}
 
-		message.reply("❌ Commands:\n!gag2stock on / off / now\n!gag2seen on / off / now");
+		message.reply("❌ Commands:\n!gag2stock on / off / now\n!gag2stock seen on / seen off / seen");
 	}
 };
 
@@ -413,7 +414,7 @@ function formatRawStockMsg(msg) {
 	out = out.trim() + '\n\n⏰ ' + time;
 	
 	// Append group redirect link
-	out += `\n\n👉 Join this group to see last seen stocks!\n${LAST_SEEN_GROUP_LINK}`;
+	out += `\n\n(Join at this group to see last seen stocks!)👇\n${LAST_SEEN_GROUP_LINK}`;
 	return out;
 }
 
@@ -466,33 +467,45 @@ function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
 	api.sendMessage(sendPayload, threadID);
 }
 
+function startSeenTimer(api) {
+	if (seenTimer) return;
+	console.log("[TGStock] Started 5-minute Last Seen timer...");
+
+	seenTimer = setInterval(async () => {
+		if (activeSeenSessions.size === 0) {
+			clearInterval(seenTimer);
+			seenTimer = null;
+			return;
+		}
+
+		// Pull the most recent data silently before broadcasting
+		await updateChannelData(false);
+		const msg = buildLastSeenMessage();
+
+		for (const [threadID, session] of activeSeenSessions.entries()) {
+			if (session.enabled) {
+				api.sendMessage(msg, threadID);
+			}
+		}
+	}, 5 * 60 * 1000); // Exactly 5 minutes
+}
+
 function startPolling(api) {
 	if (pollTimer) return;
-	console.log("[TGStock] Started polling Telegram channel...");
+	console.log("[TGStock] Started 10-second polling for New Stocks...");
 
 	pollTimer = setInterval(async () => {
 		const msg = await updateChannelData(false); 
 		if (msg) {
 			const hash = JSON.stringify({ id: msg.id, type: msg.type });
 			
-			// 1. Send Stock updates to Stock Groups
+			// 1. Send Stock updates to Stock Groups immediately when a new message is detected
 			for (const [threadID, session] of activeStockSessions.entries()) {
 				if (session.enabled) {
 					const lastHash = lastSentHash.get(`stock_${threadID}`);
 					if (lastHash !== hash) {
 						lastSentHash.set(`stock_${threadID}`, hash);
 						sendStockGroupUpdate(api, threadID, msg, session.participantIDs || []);
-					}
-				}
-			}
-
-			// 2. Send Last Seen dashboard updates to Last Seen Groups
-			for (const [threadID, session] of activeSeenSessions.entries()) {
-				if (session.enabled) {
-					const lastHash = lastSentHash.get(`seen_${threadID}`);
-					if (lastHash !== hash) {
-						lastSentHash.set(`seen_${threadID}`, hash);
-						api.sendMessage(buildLastSeenMessage(), threadID);
 					}
 				}
 			}
