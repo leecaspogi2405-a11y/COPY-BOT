@@ -22,7 +22,7 @@ const ALL_GAME_ITEMS = {
 		"Common Watering Can", "Common Sprinkler", "Uncommon Sprinkler", "Jump Mushroom", 
 		"Trowel", "Invisibility Mushroom", "Rare Sprinkler", "Shrink Mushroom", 
 		"Speed Mushroom", "Gnome", "Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", 
-		"Basic Pot", "Strawberry Sniper"
+		"Basic Pot"
 	],
 	"Crate 📦": [
 		"Bench Crate", "Ladder Crate", "Light Crate", "Arch Crate", "Sign Crate", 
@@ -47,7 +47,6 @@ for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
 let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
-// Strawberry Sniper REMOVED, Blizzard ADDED
 const TARGET_ITEMS = [
 	"Dragon's Breath", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
 	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
@@ -61,7 +60,7 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "9.0",
+		version: "9.1",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Unified stock, synchronized last seen tracker, and dynamic QR insert",
@@ -117,15 +116,22 @@ module.exports = {
 					return message.reply("❌ Walang nahanap na valid na image attachment o URL link sa nireplyan mong message!");
 				}
 
-				// Confirm update with stored link & image preview
-				return sendLastSeenMessageWithQR(api, threadID, statusMsg.trim());
+				let payload = { body: statusMsg.trim() };
+				if (currentQrImageUrl) {
+					try {
+						payload.attachment = (await axios.get(currentQrImageUrl, { responseType: 'stream' })).data;
+					} catch (e) {
+						console.error("[TGStock] Error attaching preview QR image:", e.message);
+					}
+				}
+				return api.sendMessage(payload, threadID);
 			}
 
 			return message.reply("❌ Gamitin ang: !qr insert (i-reply sa image o link)");
 		}
 
 		// ==========================================
-		// 2. COMMAND: !gag2seen
+		// 2. COMMAND: !gag2seen (Text-Only, Walang QR / Link)
 		// ==========================================
 		if (cmdUsed === "gag2seen") {
 			if (action === "on") {
@@ -145,14 +151,14 @@ module.exports = {
 
 			if (action === "now" || action === "") {
 				await updateChannelData(false);
-				return sendLastSeenMessageWithQR(api, threadID);
+				return sendLastSeenMessage(api, threadID);
 			}
 
 			return message.reply("❌ Mga command sa Last Seen:\n!gag2seen on\n!gag2seen off\n!gag2seen now");
 		}
 
 		// ==========================================
-		// 3. COMMAND: !gag2stock
+		// 3. COMMAND: !gag2stock (May QR Image at Link)
 		// ==========================================
 		if (action === "on") {
 			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
@@ -177,7 +183,7 @@ module.exports = {
 			return;
 		}
 
-		return message.reply("❌ Mga command sa Stock:\n!gag2stock on\n!gag2stock off\n!gag2stock now\n!qr insert");
+		return message.reply("❌ Mga command sa Stock:\n!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert");
 	}
 };
 
@@ -462,6 +468,7 @@ function formatRawStockMsg(msg) {
 	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
 	out = out.trim() + '\n\n⏰ ' + time;
 	
+	// Group Link is included ONLY in Stock messages
 	out += `\n\n(Join at this group to see last seen stocks!)👇\n${LAST_SEEN_GROUP_LINK}`;
 	return out;
 }
@@ -495,21 +502,12 @@ function buildLastSeenMessage() {
 	return out.trim();
 }
 
-async function sendLastSeenMessageWithQR(api, threadID, customHeader = "") {
-	let textMsg = customHeader ? `${customHeader}\n\n${buildLastSeenMessage()}` : buildLastSeenMessage();
-	
-	if (currentQrImageUrl) {
-		try {
-			const imageStream = (await axios.get(currentQrImageUrl, { responseType: 'stream' })).data;
-			await api.sendMessage({ body: textMsg, attachment: imageStream }, threadID);
-			return;
-		} catch (e) {
-			console.error("[TGStock] Error sending QR image attachment:", e.message);
-		}
-	}
-	await api.sendMessage(textMsg, threadID);
+// Pure text delivery for Last Seen (Walang QR Attachment)
+async function sendLastSeenMessage(api, threadID) {
+	await api.sendMessage(buildLastSeenMessage(), threadID);
 }
 
+// Stock Delivery (Kasamang isesend ang QR Attachment kung may nai-insert na QR)
 async function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
 	let msgBody = "";
 	let hasAlerts = false;
@@ -535,7 +533,7 @@ async function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
 		try {
 			payload.attachment = (await axios.get(currentQrImageUrl, { responseType: 'stream' })).data;
 		} catch (e) {
-			console.error("[TGStock] Error attaching QR image:", e.message);
+			console.error("[TGStock] Error attaching QR image to stock update:", e.message);
 		}
 	}
 
@@ -566,7 +564,7 @@ function startPolling(api) {
 					const lastHash = lastSentHash.get(`seen_${threadID}`);
 					if (lastHash !== hash) {
 						lastSentHash.set(`seen_${threadID}`, hash);
-						sendLastSeenMessageWithQR(api, threadID);
+						sendLastSeenMessage(api, threadID);
 					}
 				}
 			}
