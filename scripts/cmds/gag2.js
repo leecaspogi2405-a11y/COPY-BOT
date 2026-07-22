@@ -1,8 +1,10 @@
 const axios = require('axios');
 
+let LAST_SEEN_GROUP_LINK = "https://m.me/j/AbbDHWUmwMTwYDLt/?send_source=gc%3Acopy_invite_link_c";
+let currentQrImageUrl = null; // Dito mai-save ang QR code image URL galing sa !qr insert
+
 const TELEGRAM_CHANNEL = "growagardenlivestock";
 const TZ = "Asia/Manila";
-const LAST_SEEN_GROUP_LINK = "https://m.me/j/Abad8QInPFA48lRu/?send_source=gc%3Acopy_invite_link_t";
 
 let pollTimer = null;
 const activeStockSessions = new Map();
@@ -30,7 +32,7 @@ const ALL_GAME_ITEMS = {
 	],
 	"Moon & Weather 🌙": [
 		"Rainbowmoon", "Mega Moon", "Bloodmoon", "Goldmoon", "Sunburst", 
-		"Snowfall", "Rainbow", "Meteor", "Aurora", "Rain", "Snow", "Lightning"
+		"Snowfall", "Rainbow", "Meteor", "Aurora", "Rain", "Snow", "Lightning", "Blizzard"
 	]
 };
 
@@ -45,34 +47,33 @@ for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
 let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
+// Strawberry Sniper REMOVED, Blizzard ADDED
 const TARGET_ITEMS = [
 	"Dragon's Breath", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
 	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
-	"Mushroom", "Cherry", "Fire Fern", "Basic Pot", "Strawberry Sniper", "Owner Door Crate",
+	"Mushroom", "Cherry", "Fire Fern", "Basic Pot", "Owner Door Crate",
 	"Teleporter Pad Crate", "Fence Crate", "Bear Trap Crate", "Sunflower", "Bamboo",
 	"Goldmoon", "Mega Moon", "Bloodmoon", "Aurora", "Rainbow", "Meteor", 
-	"Rainbowmoon", "Sunburst", "Snowfall", "Lightning"
+	"Rainbowmoon", "Sunburst", "Snowfall", "Lightning", "Blizzard"
 ];
 
 module.exports = {
 	config: {
 		name: "gag2stock",
-		aliases: ["gag2seen"], // Nagdagdag tayo ng alias para maging dalawang command
-		version: "8.1",
+		aliases: ["gag2seen", "qr"],
+		version: "9.0",
 		author: "Dev Xdragon",
 		role: 1,
-		description: "Unified stock and synchronized last seen tracker",
+		description: "Unified stock, synchronized last seen tracker, and dynamic QR insert",
 		category: "stock",
-		guide: "!gag2stock on/off/now\n!gag2seen on/off/now"
+		guide: "!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert (i-reply sa image o link)"
 	},
 
 	onStart: async ({ message, event, args, api }) => {
-		const action = args.join(" ").toLowerCase();
+		const fullText = event.body ? event.body.trim() : "";
+		const cmdUsed = fullText.split(/\s+/)[0].toLowerCase().replace(/^[!./#]/, '');
+		const action = args.join(" ").toLowerCase().trim();
 		const threadID = event.threadID;
-
-		// Inaalam kung anong exact command ang nai-type ng user sa chat
-		const cmdUsed = event.body.split(" ")[0].toLowerCase();
-		const isSeenCmd = cmdUsed.includes("gag2seen");
 
 		if (!isDatabaseInitialized) {
 			await updateChannelData(true); 
@@ -80,13 +81,57 @@ module.exports = {
 		}
 
 		// ==========================================
-		// LOGIC PARA SA !gag2seen
+		// 1. COMMAND: !qr insert
 		// ==========================================
-		if (isSeenCmd) {
+		if (cmdUsed === "qr") {
+			if (action === "insert") {
+				if (!event.messageReply) {
+					return message.reply("❌ Paano gamitin:\n1. Mag-send ng QR image o link sa chat.\n2. I-reply ang '!qr insert' sa message na iyon.");
+				}
+
+				const reply = event.messageReply;
+				let isUpdated = false;
+				let statusMsg = "✅ **QR Insert Update Success!**\n\n";
+
+				// Check if reply has attachment (Image/QR)
+				if (reply.attachments && reply.attachments.length > 0) {
+					const imgAtt = reply.attachments.find(a => a.type === 'photo' || a.type === 'image' || a.url);
+					if (imgAtt) {
+						currentQrImageUrl = imgAtt.url;
+						isUpdated = true;
+						statusMsg += "🖼️ **QR Image:** Dynamically Updated!\n";
+					}
+				}
+
+				// Check if reply has text/link
+				if (reply.body) {
+					const urlMatch = reply.body.match(/https?:\/\/[^\s]+/i);
+					if (urlMatch) {
+						LAST_SEEN_GROUP_LINK = urlMatch[0];
+						isUpdated = true;
+						statusMsg += `🔗 **Group Link:** ${LAST_SEEN_GROUP_LINK}\n`;
+					}
+				}
+
+				if (!isUpdated) {
+					return message.reply("❌ Walang nahanap na valid na image attachment o URL link sa nireplyan mong message!");
+				}
+
+				// Confirm update with stored link & image preview
+				return sendLastSeenMessageWithQR(api, threadID, statusMsg.trim());
+			}
+
+			return message.reply("❌ Gamitin ang: !qr insert (i-reply sa image o link)");
+		}
+
+		// ==========================================
+		// 2. COMMAND: !gag2seen
+		// ==========================================
+		if (cmdUsed === "gag2seen") {
 			if (action === "on") {
 				activeSeenSessions.set(threadID, { enabled: true });
 				if (!pollTimer) startPolling(api);
-				return message.reply("✅ Synchronized Last Seen updates enabled for this group! It will now trigger instantly alongside gag2stock updates.");
+				return message.reply("✅ Synchronized Last Seen updates enabled for this group!");
 			}
 
 			if (action === "off") {
@@ -100,14 +145,14 @@ module.exports = {
 
 			if (action === "now" || action === "") {
 				await updateChannelData(false);
-				return message.reply(buildLastSeenMessage());
+				return sendLastSeenMessageWithQR(api, threadID);
 			}
 
-			return message.reply("❌ Mga command para sa Last Seen:\n!gag2seen on\n!gag2seen off\n!gag2seen now");
+			return message.reply("❌ Mga command sa Last Seen:\n!gag2seen on\n!gag2seen off\n!gag2seen now");
 		}
 
 		// ==========================================
-		// LOGIC PARA SA !gag2stock
+		// 3. COMMAND: !gag2stock
 		// ==========================================
 		if (action === "on") {
 			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
@@ -128,11 +173,11 @@ module.exports = {
 			const latestMsg = await updateChannelData(false);
 			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
 			
-			sendStockGroupUpdate(api, threadID, latestMsg, event.participantIDs || []);
+			await sendStockGroupUpdate(api, threadID, latestMsg, event.participantIDs || []);
 			return;
 		}
 
-		return message.reply("❌ Mga command para sa Stock:\n!gag2stock on\n!gag2stock off\n!gag2stock now");
+		return message.reply("❌ Mga command sa Stock:\n!gag2stock on\n!gag2stock off\n!gag2stock now\n!qr insert");
 	}
 };
 
@@ -428,7 +473,7 @@ function buildLastSeenMessage() {
 		out += `\n【 ${category} 】\n\n`;
 		
 		for (const itemName of itemsList) {
-			const timestamp = lastSeenDB[category][itemName];
+			const timestamp = lastSeenDB[category]?.[itemName] || 0;
 			
 			if (currentStockItems.has(itemName)) {
 				if (category === "Moon & Weather 🌙") {
@@ -450,7 +495,22 @@ function buildLastSeenMessage() {
 	return out.trim();
 }
 
-function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
+async function sendLastSeenMessageWithQR(api, threadID, customHeader = "") {
+	let textMsg = customHeader ? `${customHeader}\n\n${buildLastSeenMessage()}` : buildLastSeenMessage();
+	
+	if (currentQrImageUrl) {
+		try {
+			const imageStream = (await axios.get(currentQrImageUrl, { responseType: 'stream' })).data;
+			await api.sendMessage({ body: textMsg, attachment: imageStream }, threadID);
+			return;
+		} catch (e) {
+			console.error("[TGStock] Error sending QR image attachment:", e.message);
+		}
+	}
+	await api.sendMessage(textMsg, threadID);
+}
+
+async function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
 	let msgBody = "";
 	let hasAlerts = false;
 	
@@ -466,8 +526,20 @@ function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
 		msgBody += "🌦️ WEATHER UPDATE 🌦️\n\n" + formatRawStockMsg(msg);
 	}
 
-	const sendPayload = hasAlerts ? { body: msgBody.trim(), mentions: buildMentions(participantIDs) } : msgBody.trim();
-	api.sendMessage(sendPayload, threadID);
+	let payload = { body: msgBody.trim() };
+	if (hasAlerts) {
+		payload.mentions = buildMentions(participantIDs);
+	}
+
+	if (currentQrImageUrl) {
+		try {
+			payload.attachment = (await axios.get(currentQrImageUrl, { responseType: 'stream' })).data;
+		} catch (e) {
+			console.error("[TGStock] Error attaching QR image:", e.message);
+		}
+	}
+
+	api.sendMessage(payload, threadID);
 }
 
 function startPolling(api) {
@@ -494,7 +566,7 @@ function startPolling(api) {
 					const lastHash = lastSentHash.get(`seen_${threadID}`);
 					if (lastHash !== hash) {
 						lastSentHash.set(`seen_${threadID}`, hash);
-						api.sendMessage(buildLastSeenMessage(), threadID);
+						sendLastSeenMessageWithQR(api, threadID);
 					}
 				}
 			}
