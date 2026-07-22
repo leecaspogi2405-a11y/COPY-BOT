@@ -57,50 +57,65 @@ const TARGET_ITEMS = [
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "8.0",
+		aliases: ["gag2seen"], // Nagdagdag tayo ng alias para maging dalawang command
+		version: "8.1",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Unified stock and synchronized last seen tracker",
 		category: "stock",
-		guide: "{pn} on - Enable stock updates here\n{pn} off - Disable stock updates\n{pn} seen on - Enable synchronized last seen updates here\n{pn} seen off - Disable last seen updates\n{pn} now - View stock\n{pn} seen - View last seen"
+		guide: "!gag2stock on/off/now\n!gag2seen on/off/now"
 	},
 
 	onStart: async ({ message, event, args, api }) => {
-		const body = args.join(" ").toLowerCase();
+		const action = args.join(" ").toLowerCase();
 		const threadID = event.threadID;
+
+		// Inaalam kung anong exact command ang nai-type ng user sa chat
+		const cmdUsed = event.body.split(" ")[0].toLowerCase();
+		const isSeenCmd = cmdUsed.includes("gag2seen");
 
 		if (!isDatabaseInitialized) {
 			await updateChannelData(true); 
 			isDatabaseInitialized = true;
 		}
 
-		if (body === "seen on") {
-			activeSeenSessions.set(threadID, { enabled: true });
-			if (!pollTimer) startPolling(api);
-			return message.reply("✅ Synchronized Last Seen updates enabled for this group! It will now trigger instantly alongside gag2stock updates.");
-		}
-
-		if (body === "seen off") {
-			activeSeenSessions.delete(threadID);
-			if (activeStockSessions.size === 0 && activeSeenSessions.size === 0 && pollTimer) {
-				clearInterval(pollTimer);
-				pollTimer = null;
+		// ==========================================
+		// LOGIC PARA SA !gag2seen
+		// ==========================================
+		if (isSeenCmd) {
+			if (action === "on") {
+				activeSeenSessions.set(threadID, { enabled: true });
+				if (!pollTimer) startPolling(api);
+				return message.reply("✅ Synchronized Last Seen updates enabled for this group! It will now trigger instantly alongside gag2stock updates.");
 			}
-			return message.reply("✅ Last Seen updates disabled for this group!");
+
+			if (action === "off") {
+				activeSeenSessions.delete(threadID);
+				if (activeStockSessions.size === 0 && activeSeenSessions.size === 0 && pollTimer) {
+					clearInterval(pollTimer);
+					pollTimer = null;
+				}
+				return message.reply("✅ Last Seen updates disabled for this group!");
+			}
+
+			if (action === "now" || action === "") {
+				await updateChannelData(false);
+				return message.reply(buildLastSeenMessage());
+			}
+
+			return message.reply("❌ Mga command para sa Last Seen:\n!gag2seen on\n!gag2seen off\n!gag2seen now");
 		}
 
-		if (body === "seen" || body === "seen now") {
-			await updateChannelData(false);
-			return message.reply(buildLastSeenMessage());
-		}
-
-		if (body === "on") {
+		// ==========================================
+		// LOGIC PARA SA !gag2stock
+		// ==========================================
+		if (action === "on") {
 			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
 			if (!pollTimer) startPolling(api);
 			return message.reply("✅ Auto stock updates enabled for this group!");
 		}
 
-		if (body === "off") {
+		if (action === "off") {
 			activeStockSessions.delete(threadID);
 			if (activeStockSessions.size === 0 && activeSeenSessions.size === 0 && pollTimer) {
 				clearInterval(pollTimer);
@@ -109,7 +124,7 @@ module.exports = {
 			return message.reply("✅ Auto stock disabled!");
 		}
 
-		if (body === "now" || body === "") {
+		if (action === "now" || action === "") {
 			const latestMsg = await updateChannelData(false);
 			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
 			
@@ -117,7 +132,7 @@ module.exports = {
 			return;
 		}
 
-		message.reply("❌ Commands:\n!gag2stock on / off / now\n!gag2stock seen on / seen off / seen");
+		return message.reply("❌ Mga command para sa Stock:\n!gag2stock on\n!gag2stock off\n!gag2stock now");
 	}
 };
 
@@ -464,7 +479,6 @@ function startPolling(api) {
 		if (msg) {
 			const hash = JSON.stringify({ id: msg.id, type: msg.type });
 			
-			// 1. Send Stock updates to Stock Groups immediately when new message arrives
 			for (const [threadID, session] of activeStockSessions.entries()) {
 				if (session.enabled) {
 					const lastHash = lastSentHash.get(`stock_${threadID}`);
@@ -475,7 +489,6 @@ function startPolling(api) {
 				}
 			}
 
-			// 2. Send Last Seen dashboard updates to Last Seen Groups INSTANTLY alongside the stock update
 			for (const [threadID, session] of activeSeenSessions.entries()) {
 				if (session.enabled) {
 					const lastHash = lastSentHash.get(`seen_${threadID}`);
