@@ -2,9 +2,14 @@ const axios = require('axios');
 
 const TELEGRAM_CHANNEL = "growagardenlivestock";
 const TZ = "Asia/Manila";
+const LAST_SEEN_GROUP_LINK = "https://m.me/j/Abad8QInPFA48lRu/?send_source=gc%3Acopy_invite_link_t";
+
 let pollTimer = null;
 
-const activeSessions = new Map();
+// Separate session maps for Stock Group and Last Seen Group
+const activeStockSessions = new Map();
+const activeSeenSessions = new Map();
+
 const lastSentHash = new Map();
 
 const ALL_GAME_ITEMS = {
@@ -16,7 +21,7 @@ const ALL_GAME_ITEMS = {
 	],
 	"Gear ⚙️": [
 		"Common Watering Can", "Common Sprinkler", "Uncommon Sprinkler", "Jump Mushroom", 
-		"Trowel", "Invisibility Mushroom", "Invisible Mushroom", "Rare Sprinkler", "Shrink Mushroom", 
+		"Trowel", "Invisibility Mushroom", "Rare Sprinkler", "Shrink Mushroom", 
 		"Speed Mushroom", "Gnome", "Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", 
 		"Basic Pot", "Strawberry Sniper"
 	],
@@ -27,12 +32,12 @@ const ALL_GAME_ITEMS = {
 		"Bear Trap Crate"
 	],
 	"Moon & Weather 🌙": [
-		"Rainbowmoon", "Megamoon", "Bloodmoon", "Goldmoon", "Sunburst", 
+		"Rainbowmoon", "Mega Moon", "Bloodmoon", "Goldmoon", "Sunburst", 
 		"Snowfall", "Rainbow", "Meteor", "Aurora", "Rain", "Snow", "Lightning"
 	]
 };
 
-// Dynamically generate the DB structure based on ALL_GAME_ITEMS
+// Initialize Database structure
 const lastSeenDB = {};
 for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
 	lastSeenDB[category] = {};
@@ -44,63 +49,85 @@ for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
 let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
-// Target items for notification pings
+// Notification Target Items
 const TARGET_ITEMS = [
 	"Dragon's Breath", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
 	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
 	"Mushroom", "Cherry", "Fire Fern", "Basic Pot", "Strawberry Sniper", "Owner Door Crate",
-	"Teleporter Pad Crate", "Fence Crate", "Bear Trap Crate", 
-	"Sunflower", "Goldmoon", "Megamoon", "Bloodmoon", "Aurora", "Rainbow", "Meteor", 
+	"Teleporter Pad Crate", "Fence Crate", "Bear Trap Crate", "Sunflower", "Bamboo",
+	"Goldmoon", "Mega Moon", "Bloodmoon", "Aurora", "Rainbow", "Meteor", 
 	"Rainbowmoon", "Sunburst", "Snowfall", "Lightning"
 ];
 
 module.exports = {
 	config: {
 		name: "gag2stock",
-		version: "5.8",
+		version: "6.0",
 		author: "Dev Xdragon",
 		role: 1,
-		description: "Auto stock & Last seen tracker with real history tracking & strict matching",
+		description: "Auto stock and Last seen tracker with dual-group support",
 		category: "stock",
-		guide: "{pn} on - Enable auto stock\n{pn} off - Disable auto stock\n{pn} now - View live stock & last seen dashboard"
+		guide: "Stock Group:\n{pn} on - Enable stock updates\n{pn} off - Disable stock updates\n{pn} now - View current stock\n\nLast Seen Group:\n!gag2seen on - Enable last seen dashboard\n!gag2seen off - Disable last seen dashboard\n!gag2seen - View live last seen"
 	},
 
 	onStart: async ({ message, event, args, api }) => {
-		const body = args.join(" ").toLowerCase();
+		const fullCmd = event.body ? event.body.trim().toLowerCase() : "";
+		const subCmd = args[0] ? args[0].toLowerCase() : "";
 		const threadID = event.threadID;
 
+		// Deep history scan on first run to fetch up to 1 month of past stock records
 		if (!isDatabaseInitialized) {
 			await updateChannelData(true); 
 			isDatabaseInitialized = true;
 		}
 
-		if (body === "on") {
-			activeSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
-			if (!pollTimer) startPolling(api);
-			return message.reply("✅ Auto stock & Last Seen tracker enabled for this chat!");
+		// --- LAST SEEN GROUP COMMANDS ---
+		if (fullCmd.startsWith("!gag2seen")) {
+			if (subCmd === "on") {
+				activeSeenSessions.set(threadID, { enabled: true });
+				if (!pollTimer) startPolling(api);
+				return message.reply("✅ Last Seen live dashboard enabled for this group!");
+			}
+			if (subCmd === "off") {
+				activeSeenSessions.delete(threadID);
+				return message.reply("✅ Last Seen updates disabled for this group!");
+			}
+			
+			// Display Last Seen Dashboard directly
+			const latestMsg = await updateChannelData(false);
+			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
+			return message.reply(buildLastSeenMessage());
 		}
 
-		if (body === "off") {
-			activeSessions.delete(threadID);
-			if (activeSessions.size === 0 && pollTimer) {
+		// --- STOCK GROUP COMMANDS ---
+		if (subCmd === "on") {
+			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
+			if (!pollTimer) startPolling(api);
+			return message.reply("✅ Auto stock updates enabled for this group!");
+		}
+
+		if (subCmd === "off") {
+			activeStockSessions.delete(threadID);
+			if (activeStockSessions.size === 0 && activeSeenSessions.size === 0 && pollTimer) {
 				clearInterval(pollTimer);
 				pollTimer = null;
 			}
 			return message.reply("✅ Auto stock disabled!");
 		}
 
-		if (body === "now" || body === "") {
+		if (subCmd === "now" || subCmd === "") {
 			const latestMsg = await updateChannelData(false);
-			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram! Please try again in a moment.");
+			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
 			
-			sendUpdates(api, threadID, latestMsg, event.participantIDs || []);
+			sendStockGroupUpdate(api, threadID, latestMsg, event.participantIDs || []);
 			return;
 		}
 
-		message.reply("❌ Commands: on, off, now");
+		message.reply("❌ Commands:\n!gag2stock on / off / now\n!gag2seen on / off / now");
 	}
 };
 
+// Deep history pagination (fetches up to 25 pages to retrieve ~1 month of history)
 async function fetchChannelHistory(pages = 1) {
 	const allMessages = [];
 	let beforeId = null;
@@ -155,8 +182,8 @@ async function fetchChannelHistory(pages = 1) {
 			console.error("[TGStock] Error fetching channel history:", e.message);
 			break;
 		}
-	}
-	
+	}	
+
 	const uniqueMessages = [];
 	const seenIds = new Set();
 	for (const m of allMessages) {
@@ -171,7 +198,7 @@ async function fetchChannelHistory(pages = 1) {
 }
 
 async function updateChannelData(isInit = false) {
-	const pagesToFetch = isInit ? 10 : 1;
+	const pagesToFetch = isInit ? 25 : 1; 
 	const messages = await fetchChannelHistory(pagesToFetch);
 	if (!messages || messages.length === 0) return null;
 
@@ -242,7 +269,6 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 				}
 			} else {
 				if (line.includes(':')) {
-					// Strict check for item name in DB updates
 					const rawName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
 					for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
 						if (rawName.toLowerCase() === knownItem.toLowerCase()) {
@@ -310,7 +336,6 @@ function getAlerts(msg) {
 	const alerts = [];
 	const lines = msg.text.split('\n');
 
-	// Sort targets so longer names match first for weather
 	const sortedTargets = [...TARGET_ITEMS].sort((a, b) => b.length - a.length);
 
 	for (const line of lines) {
@@ -330,18 +355,17 @@ function getAlerts(msg) {
 				}
 			}
 		} else if (line.includes(':')) {
-			const leftSide = line.split(':')[0].trim(); // Gets everything before the ':'
+			const leftSide = line.split(':')[0].trim();
 			
-			// Extract Emoji (Matches everything before the first letter/number)
+			// Native Emoji Extraction
 			const emojiMatch = leftSide.match(/^[^a-zA-Z0-9]+/);
 			let originalEmoji = emojiMatch ? emojiMatch[0].replace(/[->]/g, '').trim() : '';
-			if (!originalEmoji) originalEmoji = '📦'; // Fallback only if no emoji exists
+			if (!originalEmoji) originalEmoji = '📦';
 			
-			// Extract Exact Name for STRICT Matching
+			// Strict exact item name matching
 			const cleanName = leftSide.replace(/^[^a-zA-Z0-9]+/, '').trim();
 			
 			for (const item of sortedTargets) {
-				// STRICT EQUALITY MATCH! (Speed Mushroom vs Mushroom is fixed here)
 				if (cleanName.toLowerCase() === item.toLowerCase()) {
 					const qtyMatch = line.match(/:\s*x?(\d+)/i);
 					const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
@@ -386,7 +410,11 @@ function formatRawStockMsg(msg) {
 		}
 	}
 	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
-	return out.trim() + '\n\n⏰ ' + time;
+	out = out.trim() + '\n\n⏰ ' + time;
+	
+	// Append group redirect link
+	out += `\n\n👉 Join this group to see last seen stocks!\n${LAST_SEEN_GROUP_LINK}`;
+	return out;
 }
 
 function buildLastSeenMessage() {
@@ -418,32 +446,24 @@ function buildLastSeenMessage() {
 	return out.trim();
 }
 
-function sendUpdates(api, threadID, msg, participantIDs) {
-	let msg1 = "";
+function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
+	let msgBody = "";
 	let hasAlerts = false;
 	
 	const alerts = getAlerts(msg);
 	if (alerts) {
-		msg1 += alerts;
+		msgBody += alerts;
 		hasAlerts = true;
 	}
 
 	if (msg.type === 'stock') {
-		msg1 += formatRawStockMsg(msg);
+		msgBody += formatRawStockMsg(msg);
 	} else if (msg.type === 'weather') {
-		msg1 += "🌦️ WEATHER UPDATE 🌦️\n\n" + formatRawStockMsg(msg);
+		msgBody += "🌦️ WEATHER UPDATE 🌦️\n\n" + formatRawStockMsg(msg);
 	}
 
-	const msg2 = buildLastSeenMessage();
-	const sendPayload = hasAlerts ? { body: msg1.trim(), mentions: buildMentions(participantIDs) } : msg1.trim();
-
-	api.sendMessage(sendPayload, threadID, (err) => {
-		if (!err) {
-			api.sendMessage(msg2, threadID);
-		} else {
-			console.error("[TGStock] Error sending Message 1:", err);
-		}
-	});
+	const sendPayload = hasAlerts ? { body: msgBody.trim(), mentions: buildMentions(participantIDs) } : msgBody.trim();
+	api.sendMessage(sendPayload, threadID);
 }
 
 function startPolling(api) {
@@ -455,12 +475,24 @@ function startPolling(api) {
 		if (msg) {
 			const hash = JSON.stringify({ id: msg.id, type: msg.type });
 			
-			for (const [threadID, session] of activeSessions.entries()) {
+			// 1. Send Stock updates to Stock Groups
+			for (const [threadID, session] of activeStockSessions.entries()) {
 				if (session.enabled) {
-					const lastHash = lastSentHash.get(threadID);
+					const lastHash = lastSentHash.get(`stock_${threadID}`);
 					if (lastHash !== hash) {
-						lastSentHash.set(threadID, hash);
-						sendUpdates(api, threadID, msg, session.participantIDs || []);
+						lastSentHash.set(`stock_${threadID}`, hash);
+						sendStockGroupUpdate(api, threadID, msg, session.participantIDs || []);
+					}
+				}
+			}
+
+			// 2. Send Last Seen dashboard updates to Last Seen Groups
+			for (const [threadID, session] of activeSeenSessions.entries()) {
+				if (session.enabled) {
+					const lastHash = lastSentHash.get(`seen_${threadID}`);
+					if (lastHash !== hash) {
+						lastSentHash.set(`seen_${threadID}`, hash);
+						api.sendMessage(buildLastSeenMessage(), threadID);
 					}
 				}
 			}
