@@ -22,43 +22,125 @@ function getFormattedDateTime() {
   return { time, date };
 }
 
+// Database safe helper functions
+async function getActiveRaffle(threadID, threadsData) {
+  try {
+    const data = await threadsData.get(threadID, "data.activeRaffle");
+    if (data && typeof data === "object") return data;
+  } catch (e) {}
+  try {
+    const threadData = await threadsData.get(threadID);
+    return threadData?.data?.activeRaffle || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function setActiveRaffle(threadID, threadsData, raffleData) {
+  try {
+    await threadsData.set(threadID, raffleData, "data.activeRaffle");
+  } catch (e) {
+    try {
+      const threadData = (await threadsData.get(threadID)) || {};
+      if (!threadData.data) threadData.data = {};
+      threadData.data.activeRaffle = raffleData;
+      await threadsData.set(threadID, threadData);
+    } catch (err) {}
+  }
+}
+
+async function getUserCoins(userID, usersData) {
+  try {
+    const uData = await usersData.get(userID);
+    return uData?.data?.xdrgCoins ?? uData?.xdrgCoins ?? 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function setUserCoins(userID, usersData, coins) {
+  try {
+    await usersData.set(userID, coins, "data.xdrgCoins");
+  } catch (e) {
+    try {
+      const uData = (await usersData.get(userID)) || {};
+      if (!uData.data) uData.data = {};
+      uData.data.xdrgCoins = coins;
+      await usersData.set(userID, uData);
+    } catch (err) {}
+  }
+}
+
 module.exports = {
   config: {
     name: "rankup",
-    aliases: ["xdrg", "raffle"],
-    version: "2.0.0",
+    aliases: ["xdrg", "raffle", "balance", "wallet"],
+    version: "2.3.0",
     author: "Xdrg trade service",
     description: "Level up system with XDRG coins and raffle giveaway system",
     category: "system",
-    usage: "rankup [on/off] | raffle [create/join/end/status] | coins",
+    usage: "~rankup balance [@mention/all] | ~rankup raffle join | !rankup raffle create <item> <coins>",
     role: 0,
+    usePrefix: false
   },
 
-  onStart: async function ({ api, event, threadsData, usersData, args, role }) {
-    const { threadID, messageID, senderID } = event;
-    const subCommand = (args[0] || "").toLowerCase();
+  onStart: async function ({ api, event, threadsData, usersData, role }) {
+    const { threadID, messageID, senderID, mentions, body = "" } = event;
+    const trimmedBody = body.trim();
+    if (!trimmedBody) return;
 
-    if (!subCommand) {
-      const rankupEnabled = await threadsData.get(
-        threadID,
-        "settings.rankupEnabled"
-      );
-      const status = rankupEnabled ? "ON" : "OFF";
-      return api.sendMessage(
-        `📊 Rankup System Status: ${status}\n\n` +
-        `💡 Commands:\n` +
-        `• rankup [on/off] - Toggle level notifications\n` +
-        `• rankup coins - Check your XDRG coins\n` +
-        `• rankup raffle create <item> <coins> - Start giveaway (Admin)\n` +
-        `• rankup raffle join - Enter active raffle\n` +
-        `• rankup raffle status - View active raffle\n` +
-        `• rankup raffle end - Draw 1 winner (Admin)`,
-        threadID,
-        messageID
-      );
+    const prefix = trimmedBody.charAt(0);
+    if (prefix !== "!" && prefix !== "~") return;
+
+    const tokens = trimmedBody.slice(1).trim().split(/\s+/);
+    if (tokens.length === 0 || !tokens[0]) return;
+
+    const mainTrigger = tokens[0].toLowerCase();
+
+    let subCommand = "";
+    let action = "";
+    let commandArgs = [];
+
+    if (["rankup", "xdrg"].includes(mainTrigger)) {
+      subCommand = (tokens[1] || "").toLowerCase();
+      action = (tokens[2] || "").toLowerCase();
+      commandArgs = tokens.slice(3);
+    } else {
+      subCommand = mainTrigger;
+      action = (tokens[1] || "").toLowerCase();
+      commandArgs = tokens.slice(2);
     }
 
+    // Help menu if no subcommand provided
+    if (!subCommand) {
+      if (prefix === "!") {
+        if (role < 1) return;
+        return api.sendMessage(
+          `👑 ADMIN RANKUP & RAFFLE COMMANDS 👑\n\n` +
+          `• !rankup [on/off] - Toggle level notifications\n` +
+          `• !rankup raffle create <item> <coins> - Start giveaway\n` +
+          `• !rankup raffle end - Draw 1 winner`,
+          threadID,
+          messageID
+        );
+      } else {
+        return api.sendMessage(
+          `📊 XDRG RANKUP & RAFFLE SYSTEM 📊\n\n` +
+          `💡 Member Commands:\n` +
+          `• ~rankup balance - Check your balance\n` +
+          `• ~rankup balance @mention - Check mentioned user balance\n` +
+          `• ~rankup balance all - Check all members balance\n` +
+          `• ~rankup raffle join - Enter active raffle\n` +
+          `• ~rankup raffle status - View active raffle`,
+          threadID,
+          messageID
+        );
+      }
+    }
+
+    // Toggle rankup notifications (Admin Only: !)
     if (subCommand === "on" || subCommand === "off") {
+      if (prefix !== "!" || role < 1) return;
       const isOn = subCommand === "on";
       await threadsData.set(threadID, isOn, "settings.rankupEnabled");
       return api.sendMessage(
@@ -68,10 +150,56 @@ module.exports = {
       );
     }
 
-    if (subCommand === "coins" || subCommand === "balance" || subCommand === "wallet") {
+    // Balance / Wallet commands
+    if (["coins", "balance", "wallet"].includes(subCommand)) {
+      const targetArg = action;
+
+      if (targetArg === "all") {
+        try {
+          const threadInfo = await api.getThreadInfo(threadID);
+          const participantIDs = threadInfo.participantIDs || [];
+          let balances = [];
+
+          for (const uid of participantIDs) {
+            const coins = await getUserCoins(uid, usersData);
+            if (coins > 0) {
+              const uName = (await usersData.getName(uid)) || "User";
+              balances.push({ name: uName, coins });
+            }
+          }
+
+          balances.sort((a, b) => b.coins - a.coins);
+
+          let listMsg = `💳 ALL MEMBERS XDRG BALANCES 💳\n\n`;
+          if (balances.length === 0) {
+            listMsg += `No members currently have XDRG coins. Keep chatting to earn!`;
+          } else {
+            balances.forEach((item, index) => {
+              listMsg += `${index + 1}. ${item.name}: ${item.coins} XDRG Coins\n`;
+            });
+          }
+          return api.sendMessage(listMsg.trim(), threadID, messageID);
+        } catch (e) {
+          return api.sendMessage("❌ Failed to retrieve thread member balances.", threadID, messageID);
+        }
+      }
+
+      const mentionIDs = Object.keys(mentions || {});
+      if (mentionIDs.length > 0) {
+        let mentionMsg = `💳 XDRG WALLET BALANCE 💳\n\n`;
+        for (const uid of mentionIDs) {
+          const uData = await usersData.get(uid);
+          const totalCoins = await getUserCoins(uid, usersData);
+          const totalExp = uData?.data?.exp || uData?.exp || 0;
+          const userName = mentions[uid].replace(/^@/, "");
+          mentionMsg += `👤 User: ${userName}\n⭐ EXP: ${totalExp}\n💰 XDRG Coins: ${totalCoins}\n\n`;
+        }
+        return api.sendMessage(mentionMsg.trim(), threadID, messageID);
+      }
+
       const userData = await usersData.get(senderID);
-      const totalCoins = userData?.data?.xdrgCoins || 0;
-      const totalExp = userData?.data?.exp || 0;
+      const totalCoins = await getUserCoins(senderID, usersData);
+      const totalExp = userData?.data?.exp || userData?.exp || 0;
       const userName = (await usersData.getName(senderID)) || "User";
 
       return api.sendMessage(
@@ -84,29 +212,25 @@ module.exports = {
       );
     }
 
-    if (subCommand === "raffle" || subCommand === "giveaway") {
-      const action = (args[1] || "").toLowerCase();
-
+    // Raffle System
+    if (["raffle", "giveaway"].includes(subCommand)) {
+      // Admin: Create Raffle (!rankup raffle create <item> <coins>)
       if (action === "create" || action === "start") {
-        if (role < 1) {
-          return api.sendMessage("❌ Only bot/group admins can create a raffle giveaway!", threadID, messageID);
+        if (prefix !== "!" || role < 1) return;
+
+        if (commandArgs.length < 2) {
+          return api.sendMessage("❌ Syntax: !rankup raffle create <item> <coin needed>", threadID, messageID);
         }
 
-        const rawArgs = args.slice(2);
-        if (rawArgs.length < 2) {
-          return api.sendMessage("❌ Invalid syntax!\nUsage: rankup raffle create <item> <coin needed>", threadID, messageID);
-        }
-
-        const coinNeeded = parseInt(rawArgs[rawArgs.length - 1]);
+        const coinNeeded = parseInt(commandArgs[commandArgs.length - 1]);
         if (isNaN(coinNeeded) || coinNeeded <= 0) {
-          return api.sendMessage("❌ Please provide a valid number of XDRG coins required to enter!", threadID, messageID);
+          return api.sendMessage("❌ Please provide a valid coin amount!", threadID, messageID);
         }
 
-        const item = rawArgs.slice(0, -1).join(" ");
-
-        const activeRaffle = await threadsData.get(threadID, "data.activeRaffle");
+        const item = commandArgs.slice(0, -1).join(" ");
+        const activeRaffle = await getActiveRaffle(threadID, threadsData);
         if (activeRaffle && activeRaffle.status === "active") {
-          return api.sendMessage("⚠️ There is already an active raffle in this group! End it first using: rankup raffle end", threadID, messageID);
+          return api.sendMessage("⚠️ An active raffle is already running! End it using !rankup raffle end", threadID, messageID);
         }
 
         const newRaffle = {
@@ -117,47 +241,52 @@ module.exports = {
           createdBy: senderID
         };
 
-        await threadsData.set(threadID, newRaffle, "data.activeRaffle");
+        await setActiveRaffle(threadID, threadsData, newRaffle);
 
         return api.sendMessage(
           `🎉 NEW RAFFLE STARTED! 🎉\n\n` +
           `🎁 Item: ${item}\n` +
           `💰 Entry Fee: ${coinNeeded} XDRG Coins\n\n` +
-          `👉 Type "rankup raffle join" to enter the giveaway!`,
+          `👉 Type "~rankup raffle join" to enter!`,
           threadID,
           messageID
         );
       }
 
-      if (action === "join" || subCommand === "join") {
-        const activeRaffle = await threadsData.get(threadID, "data.activeRaffle");
+      // Member: Join Raffle (~rankup raffle join)
+      if (action === "join") {
+        if (prefix !== "~") return;
+
+        const activeRaffle = await getActiveRaffle(threadID, threadsData);
         if (!activeRaffle || activeRaffle.status !== "active") {
-          return api.sendMessage("❌ There is no active raffle running in this group right now!", threadID, messageID);
+          return api.sendMessage("❌ There is no active raffle running in this group!", threadID, messageID);
         }
 
-        if (activeRaffle.participants.includes(senderID)) {
+        if (Array.isArray(activeRaffle.participants) && activeRaffle.participants.includes(senderID)) {
           return api.sendMessage("⚠️ You have already entered this raffle!", threadID, messageID);
         }
 
-        const userData = await usersData.get(senderID);
-        const currentCoins = userData?.data?.xdrgCoins || 0;
+        const currentCoins = await getUserCoins(senderID, usersData);
 
         if (currentCoins < activeRaffle.coinNeeded) {
           return api.sendMessage(
             `❌ You don't have enough XDRG coins to join!\n` +
             `Required: ${activeRaffle.coinNeeded} XDRG Coins\n` +
             `Your Balance: ${currentCoins} XDRG Coins\n\n` +
-            `💡 Keep chatting in the group to level up and earn more coins!`,
+            `💡 Keep chatting to level up and earn more coins!`,
             threadID,
             messageID
           );
         }
 
         const updatedCoins = currentCoins - activeRaffle.coinNeeded;
-        await usersData.set(senderID, updatedCoins, "data.xdrgCoins");
+        await setUserCoins(senderID, usersData, updatedCoins);
 
+        if (!Array.isArray(activeRaffle.participants)) {
+          activeRaffle.participants = [];
+        }
         activeRaffle.participants.push(senderID);
-        await threadsData.set(threadID, activeRaffle, "data.activeRaffle");
+        await setActiveRaffle(threadID, threadsData, activeRaffle);
 
         const userName = (await usersData.getName(senderID)) || "User";
         const { time, date } = getFormattedDateTime();
@@ -174,32 +303,31 @@ module.exports = {
         return api.sendMessage(joinMessage, threadID, messageID);
       }
 
+      // Admin: End Raffle (!rankup raffle end)
       if (action === "end" || action === "draw") {
-        if (role < 1) {
-          return api.sendMessage("❌ Only bot/group admins can end the raffle!", threadID, messageID);
-        }
+        if (prefix !== "!" || role < 1) return;
 
-        const activeRaffle = await threadsData.get(threadID, "data.activeRaffle");
+        const activeRaffle = await getActiveRaffle(threadID, threadsData);
         if (!activeRaffle || activeRaffle.status !== "active") {
           return api.sendMessage("❌ There is no active raffle to end!", threadID, messageID);
         }
 
         const participants = activeRaffle.participants || [];
         if (participants.length === 0) {
-          await threadsData.set(threadID, { status: "ended" }, "data.activeRaffle");
-          return api.sendMessage("📢 Raffle ended! Unfortunately, nobody joined the giveaway.", threadID, messageID);
+          await setActiveRaffle(threadID, threadsData, { status: "ended" });
+          return api.sendMessage("📢 Raffle ended! Nobody joined the giveaway.", threadID, messageID);
         }
 
         const winnerID = participants[Math.floor(Math.random() * participants.length)];
         const winnerName = (await usersData.getName(winnerID)) || "User";
 
-        await threadsData.set(threadID, { status: "ended" }, "data.activeRaffle");
+        await setActiveRaffle(threadID, threadsData, { status: "ended" });
 
         return api.sendMessage(
           {
             body: `🏆 WINNER ANNOUNCEMENT 🏆\n\n` +
                   `🎉 Congratulations @${winnerName}!\n` +
-                  `🎁 You won the item: ${activeRaffle.item}\n` +
+                  `🎁 You won: ${activeRaffle.item}\n` +
                   `👥 Total Participants: ${participants.length}\n\n` +
                   `Brought to you by XDRG TRADE SERVICE!`,
             mentions: [{ tag: winnerName, id: winnerID }]
@@ -209,68 +337,25 @@ module.exports = {
         );
       }
 
+      // Status Check (~rankup raffle status)
       if (action === "status" || action === "info") {
-        const activeRaffle = await threadsData.get(threadID, "data.activeRaffle");
+        const activeRaffle = await getActiveRaffle(threadID, threadsData);
         if (!activeRaffle || activeRaffle.status !== "active") {
           return api.sendMessage("ℹ️ No active raffle in this group.", threadID, messageID);
         }
+
+        const participantCount = Array.isArray(activeRaffle.participants) ? activeRaffle.participants.length : 0;
 
         return api.sendMessage(
           `📊 ACTIVE RAFFLE DETAILS 📊\n\n` +
           `🎁 Item: ${activeRaffle.item}\n` +
           `💰 Required Coins: ${activeRaffle.coinNeeded} XDRG Coins\n` +
-          `👥 Current Entries: ${activeRaffle.participants.length} participant(s)`,
+          `👥 Current Entries: ${participantCount} participant(s)`,
           threadID,
           messageID
         );
       }
-
-      if (action) {
-        if (role >= 1) {
-          const rawArgs = args.slice(1);
-          const coinNeeded = parseInt(rawArgs[rawArgs.length - 1]);
-          if (!isNaN(coinNeeded) && coinNeeded > 0) {
-            const item = rawArgs.slice(0, -1).join(" ");
-            
-            const activeRaffle = await threadsData.get(threadID, "data.activeRaffle");
-            if (activeRaffle && activeRaffle.status === "active") {
-              return api.sendMessage("⚠️ There is already an active raffle in this group! End it first using: rankup raffle end", threadID, messageID);
-            }
-
-            const newRaffle = {
-              status: "active",
-              item: item,
-              coinNeeded: coinNeeded,
-              participants: [],
-              createdBy: senderID
-            };
-
-            await threadsData.set(threadID, newRaffle, "data.activeRaffle");
-
-            return api.sendMessage(
-              `🎉 NEW RAFFLE STARTED! 🎉\n\n` +
-              `🎁 Item: ${item}\n` +
-              `💰 Entry Fee: ${coinNeeded} XDRG Coins\n\n` +
-              `👉 Type "rankup raffle join" to enter the giveaway!`,
-              threadID,
-              messageID
-            );
-          }
-        }
-      }
-
-      return api.sendMessage(
-        `💡 Raffle Commands:\n` +
-        `• rankup raffle create <item> <coins>\n` +
-        `• rankup raffle join\n` +
-        `• rankup raffle status\n` +
-        `• rankup raffle end`,
-        threadID,
-        messageID
-      );
     }
-
-    return api.sendMessage(`Usage: rankup [on/off] | rankup coins | rankup raffle`, threadID, messageID);
   },
 
   onChat: async function ({
@@ -290,8 +375,8 @@ module.exports = {
 
     try {
       const userData = await usersData.get(senderID);
-      const prevExp = userData?.data?.exp || 0;
-      const currentCoins = userData?.data?.xdrgCoins || 0;
+      const prevExp = userData?.data?.exp || userData?.exp || 0;
+      const currentCoins = await getUserCoins(senderID, usersData);
       const exp = prevExp + 1;
 
       await usersData.set(senderID, exp, "data.exp");
@@ -304,7 +389,7 @@ module.exports = {
 
       if (currentLevel > prevLevel && currentLevel > 1) {
         const totalCoins = currentCoins + 5;
-        await usersData.set(senderID, totalCoins, "data.xdrgCoins");
+        await setUserCoins(senderID, usersData, totalCoins);
 
         const name = (await usersData.getName(senderID)) || "User";
 
