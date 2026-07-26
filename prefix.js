@@ -3,8 +3,8 @@ const fs = require("fs-extra");
 module.exports = {
   config: {
     name: "prefix",
-    version: "2.5.0",
-    author: "Jonell Magallanes",
+    version: "2.6.0",
+    author: "Dev Xdragon",
     countDown: 5,
     role: 0,
     shortDescription: {
@@ -25,7 +25,56 @@ module.exports = {
 
     if (args.length === 0) {
       const botID = api.getCurrentUserID() || global.botID;
-      const body = `👋 Hey! My current prefix in this chat is: [ ${prefix} ]\n\nTo see my commands, type ${prefix}help. ✨`;
+      
+      // Fetch dynamic data
+      let name = "User";
+      try {
+        const uData = await usersData.get(senderID);
+        if (uData && uData.name) name = uData.name;
+      } catch (e) {}
+
+      const botName = global.GoatBot.config.botName || "Xdragon Bot";
+      const cmdCount = global.GoatBot.commands ? global.GoatBot.commands.size : "Unknown";
+
+      // Calculate Uptime
+      const uptime = process.uptime();
+      const hours = Math.floor(uptime / 3600);
+      const minutes = Math.floor((uptime % 3600) / 60);
+      const seconds = Math.floor(uptime % 60);
+      const uptimeString = `${hours}h ${minutes}m ${seconds}s`;
+
+      // Get Time and Date
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' });
+      const dateStr = now.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', year: 'numeric', month: 'long', day: 'numeric' });
+
+      const body = `╭── « 🤖 𝗕𝗢𝗧 𝗜𝗡𝗙𝗢 by Xdragon » ─⟡
+│
+│ 👋 Hello, ${name} my 
+│    currently prefix is [${prefix}]
+│
+│ 🤖 Bot    : ${botName}<-Xdragon Bot
+│ 📌 Prefix : ${prefix}
+│ 📊 Cmds   : ${cmdCount}
+│ ⏰ Uptime : ${uptimeString}
+│ 🕐 Time   : ${timeStr}
+│ 📅 Date   : ${dateStr}
+│
+│ 💡 To view commands:
+│    ${prefix}help
+│
+│ 👑 prefix:
+│    ${prefix}prefix [new prefix]
+│    (Bot Admin only)
+│   
+│  ℹ️ Declaimer: Prefix is working for all           
+│  users but if cmds only admin allowed 
+│
+│  🟢Made by Dev Xdragon (ask me    
+│   everything, I know Everything, ow no I    
+│   think the system taking by verify 😐)
+│
+╰──────────────────⟡`;
       
       try {
         if (typeof api.shareContact === "function") {
@@ -75,11 +124,60 @@ module.exports = {
     }
   },
 
-  onChat: async function ({ event, message, api, threadsData }) {
+  onChat: async function ({ event, message, api, threadsData, usersData }) {
     if (event.body && event.body.toLowerCase() === "prefix") {
       const prefix = (await threadsData.get(event.threadID)).prefix || global.GoatBot.config.prefix;
       const botID = api.getCurrentUserID() || global.botID;
-      const body = `👋 Hey there! My current prefix is: [ ${prefix} ]\n\nTo see my commands, type ${prefix}help. ✨`;
+
+      // Fetch dynamic data
+      let name = "User";
+      try {
+        const uData = await usersData.get(event.senderID);
+        if (uData && uData.name) name = uData.name;
+      } catch (e) {}
+
+      const botName = global.GoatBot.config.botName || "Xdragon Bot";
+      const cmdCount = global.GoatBot.commands ? global.GoatBot.commands.size : "Unknown";
+
+      // Calculate Uptime
+      const uptime = process.uptime();
+      const hours = Math.floor(uptime / 3600);
+      const minutes = Math.floor((uptime % 3600) / 60);
+      const seconds = Math.floor(uptime % 60);
+      const uptimeString = `${hours}h ${minutes}m ${seconds}s`;
+
+      // Get Time and Date
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' });
+      const dateStr = now.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', year: 'numeric', month: 'long', day: 'numeric' });
+
+      const body = `╭── « 🤖 𝗕𝗢𝗧 𝗜𝗡𝗙𝗢 by Xdragon » ─⟡
+│
+│ 👋 Hello, ${name} my 
+│    currently prefix is [${prefix}]
+│
+│ 🤖 Bot    : ${botName}<-Xdragon Bot
+│ 📌 Prefix : ${prefix}
+│ 📊 Cmds   : ${cmdCount}
+│ ⏰ Uptime : ${uptimeString}
+│ 🕐 Time   : ${timeStr}
+│ 📅 Date   : ${dateStr}
+│
+│ 💡 To view commands:
+│    ${prefix}help
+│
+│ 👑 prefix:
+│    ${prefix}prefix [new prefix]
+│    (Bot Admin only)
+│   
+│  ℹ️ Declaimer: Prefix is working for all           
+│  users but if cmds only admin allowed 
+│
+│  🟢Made by Dev Xdragon (ask me    
+│   everything, I know Everything, ow no I    
+│   think the system taking by verify 😐)
+│
+╰──────────────────⟡`;
 
       try {
         if (typeof api.shareContact === "function") {
