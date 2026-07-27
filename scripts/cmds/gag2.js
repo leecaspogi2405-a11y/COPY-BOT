@@ -31,7 +31,7 @@ const ALL_GAME_ITEMS = {
 		"Bench Crate", "Ladder Crate", "Light Crate", "Arch Crate", "Sign Crate", 
 		"Owner Door Crate", "Spring Crate", "Bridge Crate", "Roleplay Crate", "Picture Frame Crate", 
 		"Seesaw Crate", "Conveyor Crate", "Boombox Crate", "Teleporter Pad Crate", "Fence Crate",
-		"Bear Trap Crate"
+		"Bear Trap Crate", "Cobblestone Crate", "Fall Structure Crate"
 	],
 	"Moon & Weather 🌙": [
 		"Rainbowmoon", "Mega Moon", "Bloodmoon", "Goldmoon", "Sunburst", 
@@ -59,8 +59,7 @@ let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
 // ==========================================
-// UNIVERSAL CHAT LISTENER (Bypasses Admin Role & Prefix)
-// Bypasses prefix to catch ~gag2list and ~gag2 info
+// UNIVERSAL CHAT LISTENER (Bypasses Admin Role & Prefix for Everyone)
 // ==========================================
 async function processCustomPrefix(event, api) {
 	if (!event || !event.body) return;
@@ -82,7 +81,6 @@ async function processCustomPrefix(event, api) {
 		if (!threadWishlists.has(threadID)) threadWishlists.set(threadID, new Map());
 		const threadList = threadWishlists.get(threadID);
 
-		// Fetch the actual Facebook User Name
 		let userName = "Player";
 		try {
 			const userInfo = await api.getUserInfo(senderID);
@@ -98,7 +96,7 @@ async function processCustomPrefix(event, api) {
 		}
 		
 		const userData = threadList.get(senderID);
-		userData.name = userName; // Always ensure name is up-to-date
+		userData.name = userName;
 
 		for (const req of requestedItems) {
 			if (ITEM_LOOKUP[req]) {
@@ -144,9 +142,9 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "10.5",
+		version: "10.6",
 		author: "Dev Xdragon",
-		role: 1, // ADMIN ONLY FOR MAIN COMMANDS (!)
+		role: 0, // Set role to 0 so overall file events aren't blocked, main commands handle checks inside
 		description: "Stock tracker with personal wishlists and overdue prediction.",
 		category: "stock",
 		guide: "Admin: !gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\n\nMembers: ~gag2list item1, item2\n~gag2 info item"
@@ -165,6 +163,16 @@ module.exports = {
 		const cmdUsed = fullText.split(/\s+/)[0].toLowerCase().replace(/^[!./#]/, '');
 		const action = args.join(" ").toLowerCase().trim();
 		const threadID = event.threadID;
+		const senderID = event.senderID;
+
+		// Check admin permission strictly for admin commands (!gag2stock, !gag2seen, !qr)
+		if (["gag2stock", "gag2seen", "qr"].includes(cmdUsed)) {
+			let threadInfo = await api.getThreadInfo(threadID);
+			let isAdmin = threadInfo.adminIDs.some(el => el.id == senderID);
+			if (!isAdmin) {
+				return api.sendMessage("❌ You do not have permission to use admin stock commands.", threadID);
+			}
+		}
 
 		if (!isDatabaseInitialized) {
 			await updateChannelData(true); 
@@ -239,7 +247,7 @@ module.exports = {
 		if (action === "now" || action === "") {
 			const latestMsg = await updateChannelData(false);
 			if (!latestMsg) return api.sendMessage("❌ Could not fetch data from Telegram!", threadID);
-			await sendStockGroupUpdate(api, threadID, latestMsg, event.participantIDs || []);
+			await sendStockGroupUpdate(api, threadID, latestMsg);
 			return;
 		}
 
@@ -352,7 +360,9 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 				}
 			} else {
 				if (line.includes(':')) {
-					const rawName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
+					let rawName = line.split(':')[0].trim();
+					// Remove symbols, hyphens, and emojis to extract exact item name safely
+					rawName = rawName.replace(/^[-–>]\s*/, '').replace(/[\p{Emoji}\p{Extended_Pictographic}]/gu, '').trim();
 					for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
 						if (rawName.toLowerCase() === knownItem.toLowerCase()) { itemName = knownItem; break; }
 					}
@@ -390,8 +400,7 @@ function getAlerts(msg, threadID) {
 	const lines = msg.text.split('\n');
 	
 	const mentions = [];
-	const userMatches = new Map(); // Maps userID -> { name, items: [] }
-	
+	const userMatches = new Map();
 	const localWishlist = threadWishlists.get(threadID) || new Map();
 
 	for (const line of lines) {
@@ -409,26 +418,33 @@ function getAlerts(msg, threadID) {
 				}
 			}
 		} else if (trimmedLine.includes(':')) {
-			const leftSide = trimmedLine.split(':')[0].trim();
-			const nameMatch = leftSide.match(/^>?\s*([^a-zA-Z0-9]*)(.*)/);
-			if (nameMatch) {
-				detectedItem = nameMatch[2].trim();
+			let leftSide = trimmedLine.split(':')[0].trim();
+			// Strip prefix markers and emojis accurately
+			leftSide = leftSide.replace(/^[-–>]\s*/, '').replace(/[\p{Emoji}\p{Extended_Pictographic}]/gu, '').trim();
+			for (const catItems of Object.values(ALL_GAME_ITEMS)) {
+				for (const known of catItems) {
+					if (leftSide.toLowerCase() === known.toLowerCase()) {
+						detectedItem = known;
+						break;
+					}
+				}
+				if (detectedItem) break;
 			}
 		}
 
 		if (detectedItem) {
-			// Loop through all users to see who requested this item
 			for (const [userID, userData] of localWishlist.entries()) {
 				const userItems = userData.items || userData;
 				const userName = userData.name || "Player";
-				
 				const hasRequested = (userItems instanceof Set) ? userItems.has(detectedItem) : false;
 
 				if (hasRequested) {
 					if (!userMatches.has(userID)) {
 						userMatches.set(userID, { name: userName, items: [] });
 					}
-					userMatches.get(userID).items.push(detectedItem);
+					if (!userMatches.get(userID).items.includes(detectedItem)) {
+						userMatches.get(userID).items.push(detectedItem);
+					}
 				}
 			}
 		}
@@ -436,14 +452,13 @@ function getAlerts(msg, threadID) {
 	
 	let combinedAlertText = "";
 	
-	// Format the grouped alerts
 	for (const [userID, matchData] of userMatches.entries()) {
 		const mentionTag = `@${matchData.name}`;
 		mentions.push({ tag: mentionTag, id: userID });
 		
-		combinedAlertText += `🎯 ${mentionTag}, Your Requested item is on stock👇\n`;
+		combinedAlertText += `${mentionTag}, Your Requested item is on stock👇\n`;
 		for (const item of matchData.items) {
-			combinedAlertText += `  > 📦 ${item}\n`;
+			combinedAlertText += `- ${item}\n`;
 		}
 		combinedAlertText += `\n`;
 	}
