@@ -19,7 +19,8 @@ const ALL_GAME_ITEMS = {
 		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Bamboo", "Corn", "Banana", 
 		"Apple", "Grape", "Pineapple", "Sun Bloom", "Poison Apple", "Coconut", "Mango", 
 		"Cactus", "Cherry", "Green Bean", "Acorn", "Venom Spitter", "Mushroom", 
-		"Dragon's Breath", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Fire Fern", "Sunflower"
+		"Dragon's Breath", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Fire Fern", "Sunflower",
+		"Venus Fly Trap", "Pomegranate" // Added missing seeds
 	],
 	"Gear ⚙️": [
 		"Common Watering Can", "Common Sprinkler", "Uncommon Sprinkler", "Jump Mushroom", 
@@ -60,7 +61,7 @@ let isDatabaseInitialized = false;
 
 // ==========================================
 // UNIVERSAL CHAT LISTENER (Bypasses Admin Role & Prefix)
-// Sasaluhin nito yung ~gag2list at ~gag2 info
+// Bypasses prefix to catch ~gag2list and ~gag2 info
 // ==========================================
 async function processCustomPrefix(event, api) {
 	if (!event || !event.body) return;
@@ -128,7 +129,7 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "10.1",
+		version: "10.2",
 		author: "Dev Xdragon",
 		role: 1, // ADMIN ONLY FOR MAIN COMMANDS (!)
 		description: "Stock tracker with auto-cleanup, personal wishlists, and overdue prediction.",
@@ -136,19 +137,14 @@ module.exports = {
 		guide: "Admin: !gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\n\nMembers: ~gag2list item1, item2\n~gag2 info item"
 	},
 
-	// Para sa GoatBot framework compatibility
 	onChat: async function({ event, api }) {
 		return processCustomPrefix(event, api);
 	},
 
-	// Para sa Mirai framework compatibility
 	handleEvent: async function({ event, api }) {
 		return processCustomPrefix(event, api);
 	},
 
-	// ==========================================
-	// ONSTART (Admin commands using ! prefix)
-	// ==========================================
 	onStart: async ({ message, event, args, api }) => {
 		const fullText = event.body ? event.body.trim() : "";
 		const cmdUsed = fullText.split(/\s+/)[0].toLowerCase().replace(/^[!./#]/, '');
@@ -160,7 +156,6 @@ module.exports = {
 			isDatabaseInitialized = true;
 		}
 
-		// !qr insert
 		if (cmdUsed === "qr") {
 			if (action === "insert") {
 				if (!event.messageReply) return api.sendMessage("❌ How to use:\n1. Send a QR image or link.\n2. Reply '!qr insert' to that message.", threadID);
@@ -201,7 +196,6 @@ module.exports = {
 			return api.sendMessage("❌ Use: !qr insert (reply to image/link)", threadID);
 		}
 
-		// !gag2seen
 		if (cmdUsed === "gag2seen") {
 			if (action === "on") {
 				activeSeenSessions.set(threadID, { enabled: true });
@@ -218,7 +212,6 @@ module.exports = {
 			}
 		}
 
-		// !gag2stock
 		if (action === "on") {
 			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
 			if (!pollTimer) startPolling(api);
@@ -377,10 +370,13 @@ function getTimeAgo(ms) {
 	return `${min} min${min !== 1 ? 's' : ''} ago`;
 }
 
+// FORMATS ALERTS EXACTLY HOW THE USER REQUESTED
 function getAlerts(msg, threadID) {
 	if (!msg || !msg.text) return { text: "", mentions: [] };
 	const lines = msg.text.split('\n');
-	const alerts = [];
+	
+	const topLevelAlerts = [];
+	const personalMentionsData = [];
 	const mentions = [];
 	const mentionedIDs = new Set();
 	
@@ -418,26 +414,34 @@ function getAlerts(msg, threadID) {
 
 		if (detectedItem) {
 			if (trimmedLine.startsWith('>')) {
-				alerts.push(`${emoji} ${qtyStr} ${detectedItem} on Stock!`);
-				mentions.push({ tag: "@everyone", id: "" });
+				topLevelAlerts.push(`‎${emoji} ${qtyStr} ${detectedItem} on Stock!`);
 			}
 
+			// Add personal tags if the item matches the wishlist
 			for (const [userID, userSet] of localWishlist.entries()) {
 				if (userSet.has(detectedItem)) {
 					const mentionTag = `@Player`; 
-					alerts.push(`🎯 ${mentionTag}, your requested ${detectedItem} is here!`);
-					if (!mentionedIDs.has(userID)) {
-						mentions.push({ tag: mentionTag, id: userID });
-						mentionedIDs.add(userID);
-					}
+					personalMentionsData.push(`🎯 ${mentionTag}, your requested ${detectedItem} is here!`);
+					
+					// Add to mentions array for Facebook API targeting
+					mentions.push({ tag: mentionTag, id: userID });
 				}
 			}
 		}
 	}
 	
-	const uniqueAlerts = [...new Set(alerts)];
+	let combinedAlertText = "";
+	
+	// Create the layout matching the request
+	if (topLevelAlerts.length > 0) {
+		combinedAlertText += [...new Set(topLevelAlerts)].join('\n') + '\n\n';
+	}
+	if (personalMentionsData.length > 0) {
+		combinedAlertText += personalMentionsData.join('\n') + '\n\n';
+	}
+
 	return {
-		text: uniqueAlerts.length > 0 ? uniqueAlerts.join('\n') + '\n\n' : "",
+		text: combinedAlertText,
 		mentions: mentions
 	};
 }
@@ -505,6 +509,7 @@ async function sendStockGroupUpdate(api, threadID, msg) {
 	let msgBody = "";
 	const alertData = getAlerts(msg, threadID);
 	
+	// Add the exact format requested for alerts
 	if (alertData.text) msgBody += alertData.text;
 
 	if (msg.type === 'stock') {
@@ -514,6 +519,8 @@ async function sendStockGroupUpdate(api, threadID, msg) {
 	}
 
 	let payload = { body: msgBody.trim() };
+	
+	// Triggers the notification for specific requested users
 	if (alertData.mentions.length > 0) payload.mentions = alertData.mentions;
 
 	if (currentQrImageUrl) {
