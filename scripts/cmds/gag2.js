@@ -81,19 +81,35 @@ async function processCustomPrefix(event, api) {
 
 		if (!threadWishlists.has(threadID)) threadWishlists.set(threadID, new Map());
 		const threadList = threadWishlists.get(threadID);
-		if (!threadList.has(senderID)) threadList.set(senderID, new Set());
-		const userList = threadList.get(senderID);
+
+		// Fetch the actual Facebook User Name
+		let userName = "Player";
+		try {
+			const userInfo = await api.getUserInfo(senderID);
+			if (userInfo && userInfo[senderID] && userInfo[senderID].name) {
+				userName = userInfo[senderID].name;
+			}
+		} catch (e) {
+			console.error("[TGStock] Failed to fetch user name:", e.message);
+		}
+
+		if (!threadList.has(senderID)) {
+			threadList.set(senderID, { name: userName, items: new Set() });
+		}
+		
+		const userData = threadList.get(senderID);
+		userData.name = userName; // Always ensure name is up-to-date
 
 		for (const req of requestedItems) {
 			if (ITEM_LOOKUP[req]) {
-				userList.add(ITEM_LOOKUP[req].name);
+				userData.items.add(ITEM_LOOKUP[req].name);
 				addedItems.push(ITEM_LOOKUP[req].name);
 			} else {
 				invalidItems.push(req);
 			}
 		}
 
-		let replyMsg = "🎯 **Personal Wishlist Updated!**\n\n";
+		let replyMsg = `🎯 **Personal Wishlist Updated for ${userName}!**\n\n`;
 		if (addedItems.length > 0) replyMsg += `✅ Added: ${addedItems.join(", ")}\n`;
 		if (invalidItems.length > 0) replyMsg += `❌ Invalid/Not found: ${invalidItems.join(", ")}\n`;
 		replyMsg += `\nI will mention you when these arrive!`;
@@ -128,7 +144,7 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "10.3",
+		version: "10.5",
 		author: "Dev Xdragon",
 		role: 1, // ADMIN ONLY FOR MAIN COMMANDS (!)
 		description: "Stock tracker with personal wishlists and overdue prediction.",
@@ -373,9 +389,8 @@ function getAlerts(msg, threadID) {
 	if (!msg || !msg.text) return { text: "", mentions: [] };
 	const lines = msg.text.split('\n');
 	
-	const topLevelAlerts = [];
-	const personalMentionsData = [];
 	const mentions = [];
+	const userMatches = new Map(); // Maps userID -> { name, items: [] }
 	
 	const localWishlist = threadWishlists.get(threadID) || new Map();
 
@@ -385,8 +400,6 @@ function getAlerts(msg, threadID) {
 		const isWeatherLine = msg.type === 'weather' || upperLine.includes('MOON:') || upperLine.includes('EVENT:');
 
 		let detectedItem = null;
-		let emoji = '📦';
-		let qtyStr = '1x';
 
 		if (isWeatherLine) {
 			for (const item of ALL_GAME_ITEMS["Moon & Weather 🌙"]) {
@@ -397,27 +410,25 @@ function getAlerts(msg, threadID) {
 			}
 		} else if (trimmedLine.includes(':')) {
 			const leftSide = trimmedLine.split(':')[0].trim();
-			
 			const nameMatch = leftSide.match(/^>?\s*([^a-zA-Z0-9]*)(.*)/);
 			if (nameMatch) {
-				emoji = nameMatch[1].trim() || '📦';
 				detectedItem = nameMatch[2].trim();
 			}
-
-			const qtyMatch = trimmedLine.match(/:\s*x?(\d+)/i);
-			qtyStr = qtyMatch ? qtyMatch[1] + "x" : "1x";
 		}
 
 		if (detectedItem) {
-			if (trimmedLine.startsWith('>')) {
-				topLevelAlerts.push(`‎${emoji} ${qtyStr} ${detectedItem} on Stock!`);
-			}
+			// Loop through all users to see who requested this item
+			for (const [userID, userData] of localWishlist.entries()) {
+				const userItems = userData.items || userData;
+				const userName = userData.name || "Player";
+				
+				const hasRequested = (userItems instanceof Set) ? userItems.has(detectedItem) : false;
 
-			for (const [userID, userSet] of localWishlist.entries()) {
-				if (userSet.has(detectedItem)) {
-					const mentionTag = `@Player`; 
-					personalMentionsData.push(`🎯 ${mentionTag}, your requested ${detectedItem} is here!`);
-					mentions.push({ tag: mentionTag, id: userID });
+				if (hasRequested) {
+					if (!userMatches.has(userID)) {
+						userMatches.set(userID, { name: userName, items: [] });
+					}
+					userMatches.get(userID).items.push(detectedItem);
 				}
 			}
 		}
@@ -425,11 +436,16 @@ function getAlerts(msg, threadID) {
 	
 	let combinedAlertText = "";
 	
-	if (topLevelAlerts.length > 0) {
-		combinedAlertText += [...new Set(topLevelAlerts)].join('\n') + '\n\n';
-	}
-	if (personalMentionsData.length > 0) {
-		combinedAlertText += personalMentionsData.join('\n') + '\n\n';
+	// Format the grouped alerts
+	for (const [userID, matchData] of userMatches.entries()) {
+		const mentionTag = `@${matchData.name}`;
+		mentions.push({ tag: mentionTag, id: userID });
+		
+		combinedAlertText += `🎯 ${mentionTag}, Your Requested item is on stock👇\n`;
+		for (const item of matchData.items) {
+			combinedAlertText += `  > 📦 ${item}\n`;
+		}
+		combinedAlertText += `\n`;
 	}
 
 	return {
@@ -521,8 +537,6 @@ async function sendStockGroupUpdate(api, threadID, msg) {
 		}
 	}
 
-	// Message unsend logic has been completely removed!
-	// Previous stock messages will now remain intact in the chat history.
 	api.sendMessage(payload, threadID);
 }
 
