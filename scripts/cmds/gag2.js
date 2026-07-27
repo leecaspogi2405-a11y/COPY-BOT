@@ -47,23 +47,14 @@ for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
 let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
-const TARGET_ITEMS = [
-	"Dragon's Breath", "Venom Spitter", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Sun Bloom",
-	"Super Watering Can", "Super Sprinkler", "Legendary Sprinkler", "Rare Sprinkler", "Poison Apple",
-	"Mushroom", "Cherry", "Fire Fern", "Basic Pot", "Owner Door Crate",
-	"Teleporter Pad Crate", "Fence Crate", "Bear Trap Crate", "Sunflower", "Bamboo",
-	"Goldmoon", "Mega Moon", "Bloodmoon", "Aurora", "Rainbow", "Meteor", 
-	"Rainbowmoon", "Sunburst", "Snowfall", "Lightning", "Blizzard"
-];
-
 module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "9.1",
+		version: "9.2",
 		author: "Dev Xdragon",
 		role: 1,
-		description: "Unified stock, synchronized last seen tracker, and dynamic QR insert",
+		description: "Unified stock, synchronized last seen tracker, and dynamic QR insert with dynamic target alerts",
 		category: "stock",
 		guide: "!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert (i-reply sa image o link)"
 	},
@@ -222,7 +213,7 @@ async function fetchChannelHistory(pages = 1) {
 					.replace(/`Copyright[\s\S]*?`/g, '')
 					.replace(/@\w+/g, '')
 					.replace(/&nbsp;/gi, ' ')
-					.replace(/&gt;/gi, '>')
+					.replace(/&gt;/gi, '>') // Perfect for reading the `>` icon from Telegram
 					.replace(/&lt;/gi, '<')
 					.replace(/&#39;/gi, "'")
 					.replace(/&#34;/gi, '"')
@@ -389,46 +380,46 @@ function getTimeAgo(ms) {
 	return `${min} minute${min !== 1 ? 's' : ''} ago`;
 }
 
+// ⚠️ UPGRADED GET ALERTS LOGIC based on the '>' sign in the image ⚠️
 function getAlerts(msg) {
 	if (!msg || !msg.text) return "";
 	const alerts = [];
 	const lines = msg.text.split('\n');
 
-	const sortedTargets = [...TARGET_ITEMS].sort((a, b) => b.length - a.length);
-
 	for (const line of lines) {
-		const upperLine = line.toUpperCase();
+		const trimmedLine = line.trim();
+		const upperLine = trimmedLine.toUpperCase();
 		const isWeatherLine = msg.type === 'weather' || upperLine.includes('MOON:') || upperLine.includes('EVENT:');
-		
-		if (!line.includes(':') && !isWeatherLine) continue;
 
 		if (isWeatherLine) {
-			for (const item of sortedTargets) {
+			// Check against the static weather list from ALL_GAME_ITEMS to still allow Event warnings
+			for (const item of ALL_GAME_ITEMS["Moon & Weather 🌙"]) {
 				const normalizedTarget = item.toLowerCase().replace(/[\s-]/g, '');
-				const normalizedLine = line.toLowerCase().replace(/[\s-]/g, '');
+				const normalizedLine = trimmedLine.toLowerCase().replace(/[\s-]/g, '');
 
 				if (normalizedLine.includes(normalizedTarget)) {
 					alerts.push(`⚠️ Active Event/Weather: ${item}!`);
 					break; 
 				}
 			}
-		} else if (line.includes(':')) {
-			const leftSide = line.split(':')[0].trim();
+		} else if (trimmedLine.startsWith('>')) {
+			// This specifically detects and builds an alert if the item has a ">" indicator (e.g. Rare item alert)
+			const leftSide = trimmedLine.split(':')[0].trim();
 			
-			const emojiMatch = leftSide.match(/^[^a-zA-Z0-9]+/);
-			let originalEmoji = emojiMatch ? emojiMatch[0].replace(/[->]/g, '').trim() : '';
-			if (!originalEmoji) originalEmoji = '📦';
+			// Separate the ">" and Emojis from the actual Item Name
+			const nameMatch = leftSide.match(/^>\s*([^a-zA-Z0-9]*)(.*)/);
+			let emoji = '📦';
+			let itemName = leftSide.substring(1).trim(); // Default fallback
 			
-			const cleanName = leftSide.replace(/^[^a-zA-Z0-9]+/, '').trim();
-			
-			for (const item of sortedTargets) {
-				if (cleanName.toLowerCase() === item.toLowerCase()) {
-					const qtyMatch = line.match(/:\s*x?(\d+)/i);
-					const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
-					alerts.push(`${originalEmoji} ${pcs} ${item} on Stock!`);
-					break;
-				}
+			if (nameMatch) {
+				emoji = nameMatch[1].trim() || '📦';
+				itemName = nameMatch[2].trim();
 			}
+
+			const qtyMatch = trimmedLine.match(/:\s*x?(\d+)/i);
+			const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
+			
+			alerts.push(`${emoji} ${pcs} ${itemName} on Stock!`);
 		}
 	}
 	
@@ -470,6 +461,9 @@ function formatRawStockMsg(msg) {
 	
 	// Group Link is included ONLY in Stock messages
 	out += `\n\n(Join at this group to see last seen stocks!)👇\n${LAST_SEEN_GROUP_LINK}`;
+	
+	// ✅ Added Custom Copyright Footer below Gag2Stock
+	out += `\n\nCopyright ©️ Gag2 ~ Dev Xdragon`;
 	return out;
 }
 
@@ -499,6 +493,9 @@ function buildLastSeenMessage() {
 	
 	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
 	out += `⏰ Last Updated: ${time}`;
+	
+	// ✅ Added Custom Copyright Footer below Gag2seen
+	out += `\n\nCopyright ©️ Gag2 ~ Dev Xdragon`;
 	return out.trim();
 }
 
