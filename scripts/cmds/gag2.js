@@ -11,7 +11,6 @@ let pollTimer = null;
 const activeStockSessions = new Map();
 const activeSeenSessions = new Map();
 const lastSentHash = new Map();
-const lastStockMessageIDs = new Map(); 
 const threadWishlists = new Map(); 
 
 const ALL_GAME_ITEMS = {
@@ -20,7 +19,7 @@ const ALL_GAME_ITEMS = {
 		"Apple", "Grape", "Pineapple", "Sun Bloom", "Poison Apple", "Coconut", "Mango", 
 		"Cactus", "Cherry", "Green Bean", "Acorn", "Venom Spitter", "Mushroom", 
 		"Dragon's Breath", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Fire Fern", "Sunflower",
-		"Venus Fly Trap", "Pomegranate" // Added missing seeds
+		"Venus Fly Trap", "Pomegranate"
 	],
 	"Gear ⚙️": [
 		"Common Watering Can", "Common Sprinkler", "Uncommon Sprinkler", "Jump Mushroom", 
@@ -129,10 +128,10 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "10.2",
+		version: "10.3",
 		author: "Dev Xdragon",
 		role: 1, // ADMIN ONLY FOR MAIN COMMANDS (!)
-		description: "Stock tracker with auto-cleanup, personal wishlists, and overdue prediction.",
+		description: "Stock tracker with personal wishlists and overdue prediction.",
 		category: "stock",
 		guide: "Admin: !gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\n\nMembers: ~gag2list item1, item2\n~gag2 info item"
 	},
@@ -370,7 +369,6 @@ function getTimeAgo(ms) {
 	return `${min} min${min !== 1 ? 's' : ''} ago`;
 }
 
-// FORMATS ALERTS EXACTLY HOW THE USER REQUESTED
 function getAlerts(msg, threadID) {
 	if (!msg || !msg.text) return { text: "", mentions: [] };
 	const lines = msg.text.split('\n');
@@ -378,7 +376,6 @@ function getAlerts(msg, threadID) {
 	const topLevelAlerts = [];
 	const personalMentionsData = [];
 	const mentions = [];
-	const mentionedIDs = new Set();
 	
 	const localWishlist = threadWishlists.get(threadID) || new Map();
 
@@ -400,7 +397,6 @@ function getAlerts(msg, threadID) {
 			}
 		} else if (trimmedLine.includes(':')) {
 			const leftSide = trimmedLine.split(':')[0].trim();
-			const cleanName = leftSide.replace(/^[^a-zA-Z0-9]+/, '').trim();
 			
 			const nameMatch = leftSide.match(/^>?\s*([^a-zA-Z0-9]*)(.*)/);
 			if (nameMatch) {
@@ -417,13 +413,10 @@ function getAlerts(msg, threadID) {
 				topLevelAlerts.push(`‎${emoji} ${qtyStr} ${detectedItem} on Stock!`);
 			}
 
-			// Add personal tags if the item matches the wishlist
 			for (const [userID, userSet] of localWishlist.entries()) {
 				if (userSet.has(detectedItem)) {
 					const mentionTag = `@Player`; 
 					personalMentionsData.push(`🎯 ${mentionTag}, your requested ${detectedItem} is here!`);
-					
-					// Add to mentions array for Facebook API targeting
 					mentions.push({ tag: mentionTag, id: userID });
 				}
 			}
@@ -432,7 +425,6 @@ function getAlerts(msg, threadID) {
 	
 	let combinedAlertText = "";
 	
-	// Create the layout matching the request
 	if (topLevelAlerts.length > 0) {
 		combinedAlertText += [...new Set(topLevelAlerts)].join('\n') + '\n\n';
 	}
@@ -509,7 +501,6 @@ async function sendStockGroupUpdate(api, threadID, msg) {
 	let msgBody = "";
 	const alertData = getAlerts(msg, threadID);
 	
-	// Add the exact format requested for alerts
 	if (alertData.text) msgBody += alertData.text;
 
 	if (msg.type === 'stock') {
@@ -520,7 +511,6 @@ async function sendStockGroupUpdate(api, threadID, msg) {
 
 	let payload = { body: msgBody.trim() };
 	
-	// Triggers the notification for specific requested users
 	if (alertData.mentions.length > 0) payload.mentions = alertData.mentions;
 
 	if (currentQrImageUrl) {
@@ -531,17 +521,9 @@ async function sendStockGroupUpdate(api, threadID, msg) {
 		}
 	}
 
-	if (lastStockMessageIDs.has(threadID)) {
-		api.unsendMessage(lastStockMessageIDs.get(threadID), (err) => {
-			if (err) console.error("[TGStock] Failed to unsend old stock:", err);
-		});
-	}
-
-	api.sendMessage(payload, threadID, (err, messageInfo) => {
-		if (!err && messageInfo) {
-			lastStockMessageIDs.set(threadID, messageInfo.messageID);
-		}
-	});
+	// Message unsend logic has been completely removed!
+	// Previous stock messages will now remain intact in the chat history.
+	api.sendMessage(payload, threadID);
 }
 
 function startPolling(api) {
