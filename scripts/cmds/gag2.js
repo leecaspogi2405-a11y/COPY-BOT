@@ -11,8 +11,8 @@ let pollTimer = null;
 const activeStockSessions = new Map();
 const activeSeenSessions = new Map();
 const lastSentHash = new Map();
-const lastStockMessageIDs = new Map(); // Auto-Cleanup Tracker
-const threadWishlists = new Map(); // Personal Wishlists Tracker
+const lastStockMessageIDs = new Map(); 
+const threadWishlists = new Map(); 
 
 const ALL_GAME_ITEMS = {
 	"Seed 🌱": [
@@ -58,85 +58,96 @@ for (const [category, items] of Object.entries(ALL_GAME_ITEMS)) {
 let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
+// ==========================================
+// UNIVERSAL CHAT LISTENER (Bypasses Admin Role & Prefix)
+// Sasaluhin nito yung ~gag2list at ~gag2 info
+// ==========================================
+async function processCustomPrefix(event, api) {
+	if (!event || !event.body) return;
+	const text = event.body.trim();
+	const threadID = event.threadID;
+	const senderID = event.senderID;
+
+	// 1. Personal Wishlist: ~gag2list Bamboo, Mushroom
+	if (text.toLowerCase().startsWith("~gag2list")) {
+		const itemsRaw = text.substring(9).trim();
+		if (!itemsRaw) {
+			return api.sendMessage("❌ How to use: ~gag2list Item1, Item2, Item3\nExample: ~gag2list Bamboo, Mushroom", threadID);
+		}
+
+		const requestedItems = itemsRaw.split(",").map(i => i.trim().toLowerCase());
+		const addedItems = [];
+		const invalidItems = [];
+
+		if (!threadWishlists.has(threadID)) threadWishlists.set(threadID, new Map());
+		const threadList = threadWishlists.get(threadID);
+		if (!threadList.has(senderID)) threadList.set(senderID, new Set());
+		const userList = threadList.get(senderID);
+
+		for (const req of requestedItems) {
+			if (ITEM_LOOKUP[req]) {
+				userList.add(ITEM_LOOKUP[req].name);
+				addedItems.push(ITEM_LOOKUP[req].name);
+			} else {
+				invalidItems.push(req);
+			}
+		}
+
+		let replyMsg = "🎯 **Personal Wishlist Updated!**\n\n";
+		if (addedItems.length > 0) replyMsg += `✅ Added: ${addedItems.join(", ")}\n`;
+		if (invalidItems.length > 0) replyMsg += `❌ Invalid/Not found: ${invalidItems.join(", ")}\n`;
+		replyMsg += `\nI will mention you when these arrive!`;
+		
+		return api.sendMessage(replyMsg, threadID);
+	}
+
+	// 2. Instant Item Lookup: ~gag2 info Bamboo
+	if (text.toLowerCase().startsWith("~gag2 info")) {
+		const searchRaw = text.substring(10).trim().toLowerCase();
+		if (!searchRaw) {
+			return api.sendMessage("❌ How to use: ~gag2 info {item}\nExample: ~gag2 info Super Sprinkler", threadID);
+		}
+
+		if (!ITEM_LOOKUP[searchRaw]) {
+			return api.sendMessage(`❌ Item "${searchRaw}" not found in the game database.`, threadID);
+		}
+
+		const exactItem = ITEM_LOOKUP[searchRaw];
+		const timestamp = lastSeenDB[exactItem.category]?.[exactItem.name] || 0;
+		const isOnStock = currentStockItems.has(exactItem.name);
+		
+		let statusStr = isOnStock ? "✅ **Currently On Stock!**" : "❌ Not on stock";
+		let timeStr = timestamp === 0 ? "Never Seen" : `${getTimeAgo(Date.now() - timestamp)} (${formatExactDate(timestamp)})`;
+
+		const replyMsg = `🔍 **Item Lookup**\n\n${exactItem.category.split(' ')[0]} **${exactItem.name}**\nStatus: ${statusStr}\nLast Seen: ${timeStr}`;
+		return api.sendMessage(replyMsg, threadID);
+	}
+}
+
 module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "10.0",
+		version: "10.1",
 		author: "Dev Xdragon",
-		role: 1, // Admin only for main commands
+		role: 1, // ADMIN ONLY FOR MAIN COMMANDS (!)
 		description: "Stock tracker with auto-cleanup, personal wishlists, and overdue prediction.",
 		category: "stock",
 		guide: "Admin: !gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\n\nMembers: ~gag2list item1, item2\n~gag2 info item"
 	},
 
-	// ==========================================
-	// ONACHAT / HANDLE EVENT (For all members)
-	// ==========================================
-	handleEvent: async function({ message, event, api }) {
-		if (!event.body) return;
-		const text = event.body.trim();
-		const threadID = event.threadID;
-		const senderID = event.senderID;
+	// Para sa GoatBot framework compatibility
+	onChat: async function({ event, api }) {
+		return processCustomPrefix(event, api);
+	},
 
-		// 1. Personal Wishlist: ~gag2list Bamboo, Mushroom
-		if (text.toLowerCase().startsWith("~gag2list")) {
-			const itemsRaw = text.substring(9).trim();
-			if (!itemsRaw) {
-				return api.sendMessage("❌ How to use: ~gag2list Item1, Item2, Item3\nExample: ~gag2list Bamboo, Mushroom", threadID);
-			}
-
-			const requestedItems = itemsRaw.split(",").map(i => i.trim().toLowerCase());
-			const addedItems = [];
-			const invalidItems = [];
-
-			if (!threadWishlists.has(threadID)) threadWishlists.set(threadID, new Map());
-			const threadList = threadWishlists.get(threadID);
-			if (!threadList.has(senderID)) threadList.set(senderID, new Set());
-			const userList = threadList.get(senderID);
-
-			for (const req of requestedItems) {
-				if (ITEM_LOOKUP[req]) {
-					userList.add(ITEM_LOOKUP[req].name);
-					addedItems.push(ITEM_LOOKUP[req].name);
-				} else {
-					invalidItems.push(req);
-				}
-			}
-
-			let replyMsg = "🎯 **Personal Wishlist Updated!**\n\n";
-			if (addedItems.length > 0) replyMsg += `✅ Added: ${addedItems.join(", ")}\n`;
-			if (invalidItems.length > 0) replyMsg += `❌ Invalid/Not found: ${invalidItems.join(", ")}\n`;
-			replyMsg += `\nI will mention you when these arrive!`;
-			
-			return api.sendMessage(replyMsg, threadID);
-		}
-
-		// 2. Instant Item Lookup: ~gag2 info Bamboo
-		if (text.toLowerCase().startsWith("~gag2 info")) {
-			const searchRaw = text.substring(10).trim().toLowerCase();
-			if (!searchRaw) {
-				return api.sendMessage("❌ How to use: ~gag2 info {item}\nExample: ~gag2 info Super Sprinkler", threadID);
-			}
-
-			if (!ITEM_LOOKUP[searchRaw]) {
-				return api.sendMessage(`❌ Item "${searchRaw}" not found in the game database.`, threadID);
-			}
-
-			const exactItem = ITEM_LOOKUP[searchRaw];
-			const timestamp = lastSeenDB[exactItem.category]?.[exactItem.name] || 0;
-			const isOnStock = currentStockItems.has(exactItem.name);
-			
-			let statusStr = isOnStock ? "✅ **Currently On Stock!**" : "❌ Not on stock";
-			let timeStr = timestamp === 0 ? "Never Seen" : `${getTimeAgo(Date.now() - timestamp)} (${formatExactDate(timestamp)})`;
-
-			const replyMsg = `🔍 **Item Lookup**\n\n${exactItem.category.split(' ')[0]} **${exactItem.name}**\nStatus: ${statusStr}\nLast Seen: ${timeStr}`;
-			return api.sendMessage(replyMsg, threadID);
-		}
+	// Para sa Mirai framework compatibility
+	handleEvent: async function({ event, api }) {
+		return processCustomPrefix(event, api);
 	},
 
 	// ==========================================
-	// ONSTART (Admin commands)
+	// ONSTART (Admin commands using ! prefix)
 	// ==========================================
 	onStart: async ({ message, event, args, api }) => {
 		const fullText = event.body ? event.body.trim() : "";
@@ -152,7 +163,7 @@ module.exports = {
 		// !qr insert
 		if (cmdUsed === "qr") {
 			if (action === "insert") {
-				if (!event.messageReply) return message.reply("❌ How to use:\n1. Send a QR image or link.\n2. Reply '!qr insert' to that message.");
+				if (!event.messageReply) return api.sendMessage("❌ How to use:\n1. Send a QR image or link.\n2. Reply '!qr insert' to that message.", threadID);
 				const reply = event.messageReply;
 				let isUpdated = false;
 				let statusMsg = "✅ **QR Insert Update Success!**\n\n";
@@ -175,7 +186,7 @@ module.exports = {
 					}
 				}
 
-				if (!isUpdated) return message.reply("❌ No valid image or URL found in the replied message!");
+				if (!isUpdated) return api.sendMessage("❌ No valid image or URL found in the replied message!", threadID);
 
 				let payload = { body: statusMsg.trim() };
 				if (currentQrImageUrl) {
@@ -187,7 +198,7 @@ module.exports = {
 				}
 				return api.sendMessage(payload, threadID);
 			}
-			return message.reply("❌ Use: !qr insert (reply to image/link)");
+			return api.sendMessage("❌ Use: !qr insert (reply to image/link)", threadID);
 		}
 
 		// !gag2seen
@@ -195,11 +206,11 @@ module.exports = {
 			if (action === "on") {
 				activeSeenSessions.set(threadID, { enabled: true });
 				if (!pollTimer) startPolling(api);
-				return message.reply("✅ Synchronized Last Seen updates enabled!");
+				return api.sendMessage("✅ Synchronized Last Seen updates enabled!", threadID);
 			}
 			if (action === "off") {
 				activeSeenSessions.delete(threadID);
-				return message.reply("✅ Last Seen updates disabled!");
+				return api.sendMessage("✅ Last Seen updates disabled!", threadID);
 			}
 			if (action === "now" || action === "") {
 				await updateChannelData(false);
@@ -211,23 +222,26 @@ module.exports = {
 		if (action === "on") {
 			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
 			if (!pollTimer) startPolling(api);
-			return message.reply("✅ Auto stock updates enabled!");
+			return api.sendMessage("✅ Auto stock updates enabled!", threadID);
 		}
 		if (action === "off") {
 			activeStockSessions.delete(threadID);
-			return message.reply("✅ Auto stock disabled!");
+			return api.sendMessage("✅ Auto stock disabled!", threadID);
 		}
 		if (action === "now" || action === "") {
 			const latestMsg = await updateChannelData(false);
-			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
+			if (!latestMsg) return api.sendMessage("❌ Could not fetch data from Telegram!", threadID);
 			await sendStockGroupUpdate(api, threadID, latestMsg, event.participantIDs || []);
 			return;
 		}
 
-		return message.reply("❌ Stock commands:\n!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\n\nFor members: ~gag2list and ~gag2 info");
+		return api.sendMessage("❌ Stock commands:\n!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\n\nFor members: ~gag2list and ~gag2 info", threadID);
 	}
 };
 
+// ==========================================
+// CORE FUNCTIONS
+// ==========================================
 async function fetchChannelHistory(pages = 1) {
 	const allMessages = [];
 	let beforeId = null;
@@ -363,7 +377,6 @@ function getTimeAgo(ms) {
 	return `${min} min${min !== 1 ? 's' : ''} ago`;
 }
 
-// ⚠️ UPGRADED GET ALERTS LOGIC (Supports > Targets & Personal Wishlists)
 function getAlerts(msg, threadID) {
 	if (!msg || !msg.text) return { text: "", mentions: [] };
 	const lines = msg.text.split('\n');
@@ -404,16 +417,14 @@ function getAlerts(msg, threadID) {
 		}
 
 		if (detectedItem) {
-			// 1. Global > Target check
 			if (trimmedLine.startsWith('>')) {
 				alerts.push(`${emoji} ${qtyStr} ${detectedItem} on Stock!`);
 				mentions.push({ tag: "@everyone", id: "" });
 			}
 
-			// 2. Personal Wishlist check
 			for (const [userID, userSet] of localWishlist.entries()) {
 				if (userSet.has(detectedItem)) {
-					const mentionTag = `@Player`; // Generic tag for mention highlighting
+					const mentionTag = `@Player`; 
 					alerts.push(`🎯 ${mentionTag}, your requested ${detectedItem} is here!`);
 					if (!mentionedIDs.has(userID)) {
 						mentions.push({ tag: mentionTag, id: userID });
@@ -471,7 +482,6 @@ function buildLastSeenMessage() {
 				const timeDiff = now - timestamp;
 				out += `🕒 ${itemName}: ${getTimeAgo(timeDiff)} (${formatExactDate(timestamp)})\n\n`; 
 				
-				// Predictor / Overdue check
 				if (timeDiff > OVERDUE_THRESHOLD_MS) {
 					overdueItems.push(`${itemName} (${Math.floor(timeDiff / (1000 * 60 * 60 * 24))} days)`);
 				}
@@ -491,7 +501,6 @@ async function sendLastSeenMessage(api, threadID) {
 	await api.sendMessage(buildLastSeenMessage(), threadID);
 }
 
-// ⚠️ UPGRADED AUTO-CLEANUP MESSAGE SENDER
 async function sendStockGroupUpdate(api, threadID, msg) {
 	let msgBody = "";
 	const alertData = getAlerts(msg, threadID);
@@ -515,14 +524,12 @@ async function sendStockGroupUpdate(api, threadID, msg) {
 		}
 	}
 
-	// Unsend old message if it exists
 	if (lastStockMessageIDs.has(threadID)) {
 		api.unsendMessage(lastStockMessageIDs.get(threadID), (err) => {
 			if (err) console.error("[TGStock] Failed to unsend old stock:", err);
 		});
 	}
 
-	// Send new message and save ID for next cleanup
 	api.sendMessage(payload, threadID, (err, messageInfo) => {
 		if (!err && messageInfo) {
 			lastStockMessageIDs.set(threadID, messageInfo.messageID);
