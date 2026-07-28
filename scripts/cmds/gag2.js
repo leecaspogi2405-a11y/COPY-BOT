@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { createCanvas, loadImage } = require('canvas');
 
 let LAST_SEEN_GROUP_LINK = "https://m.me/j/AbbDHWUmwMTwYDLt/?send_source=gc%3Acopy_invite_link_c";
 let currentQrImageUrl = null;
@@ -12,6 +13,44 @@ const activeStockSessions = new Map();
 const activeSeenSessions = new Map();
 const lastSentHash = new Map();
 const threadWishlists = new Map(); 
+
+// The Image Dictionary provided by you. 
+// Note: Direct image links (like Discord) work best for Canvas rendering.
+const ITEM_IMAGES = {
+	"Carrot": "https://growagarden2.fandom.com/wiki/File:CarrotSeed.png",
+	"Strawberry": "https://growagarden2.fandom.com/wiki/File:StrawberrySeed.png",
+	"Blueberry": "https://growagarden2.fandom.com/wiki/File:BlueberrySeed.png",
+	"Tulip": "https://growagarden2.fandom.com/wiki/File:TulipSeed.png",
+	"Tomato": "https://growagarden2.fandom.com/wiki/File:TomatoSeed.png",
+	"Apple": "https://growagarden2.fandom.com/wiki/File:AppleSeed.png",
+	"Bamboo": "https://growagarden2.fandom.com/wiki/File:BambooSeed.png",
+	"Corn": "https://growagarden2.fandom.com/wiki/File:CornSeed.png",
+	"Cactus": "https://growagarden2.fandom.com/wiki/File:CactusSeed.png",
+	"Pineapple": "https://growagarden2.fandom.com/wiki/File:PineappleSeed.png",
+	"Mushroom": "https://growagarden2.fandom.com/wiki/File:MushroomSeed.png",
+	"Green Bean": "https://growagarden2.fandom.com/wiki/File:GreenBeanSeed.png",
+	"Banana": "https://growagarden2.fandom.com/wiki/File:BananaSeed.png",
+	"Grape": "https://growagarden2.fandom.com/wiki/File:GrapeSeed.png",
+	"Coconut": "https://growagarden2.fandom.com/wiki/File:CoconutSeed.png",
+	"Mango": "https://growagarden2.fandom.com/wiki/File:MangoSeed.png",
+	"Rocket Pop": "https://growagarden2.fandom.com/wiki/File:RocketPopSeed.png",
+	"Dragon Fruit": "https://growagarden2.fandom.com/wiki/File:DragonFruitSeed.png",
+	"Acorn": "https://growagarden2.fandom.com/wiki/File:AcornSeed.png",
+	"Cherry": "https://growagarden2.fandom.com/wiki/File:CherrySeed.png",
+	"Sunflower": "https://growagarden2.fandom.com/wiki/File:SunflowerSeed.png",
+	"Fire Fern": "https://growagarden2.fandom.com/wiki/File:FireFernSeed.png",
+	"Venus Fly Trap": "https://growagarden2.fandom.com/wiki/File:VenusFlyTrapSeed.png",
+	"Pomegranate": "https://growagarden2.fandom.com/wiki/File:PomegranateSeed.png",
+	"Poison Apple": "https://growagarden2.fandom.com/wiki/File:PoisonAppleSeed.png",
+	"Venom Spitter": "https://growagarden2.fandom.com/wiki/File:VenomSpitterSeed.png",
+	"Moon Bloom": "https://growagarden2.fandom.com/wiki/File:MoonBloomSeed.png",
+	"Hypno Bloom": "https://growagarden2.fandom.com/wiki/File:HypnoBloomSeed.png",
+	"Dragon's Breath": "https://growagarden2.fandom.com/wiki/File:Dragon'sBreathSeed.png",
+	"Sun Bloom": "https://growagarden2.fandom.com/wiki/File:SunBloomSeed.png",
+	"Star Fruit": "https://growagarden2.fandom.com/wiki/File:StarFruitSeed.png"
+};
+
+const CREDIT_IMAGE_URL = "https://cdn.discordapp.com/attachments/1515213930870472724/1531659533628342523/orca-image-1568852075.jpeg.jpg?ex=6a6a0499&is=6a68b319&hm=44f07ee1bcd76f34fd682bb35f91251467078d9e8700fba2575921d3aec1714c&";
 
 const ALL_GAME_ITEMS = {
 	"Seed 🌱": [
@@ -67,7 +106,6 @@ async function processCustomPrefix(event, api) {
 	const threadID = event.threadID;
 	const senderID = event.senderID;
 
-	// 1. Personal Wishlist: ~gag2list Bamboo, Mushroom
 	if (text.toLowerCase().startsWith("~gag2list")) {
 		const itemsRaw = text.substring(9).trim();
 		if (!itemsRaw) {
@@ -115,7 +153,6 @@ async function processCustomPrefix(event, api) {
 		return api.sendMessage(replyMsg, threadID);
 	}
 
-	// 2. Instant Item Lookup: ~gag2 info Bamboo
 	if (text.toLowerCase().startsWith("~gag2 info")) {
 		const searchRaw = text.substring(10).trim().toLowerCase();
 		if (!searchRaw) {
@@ -142,10 +179,10 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "10.6",
+		version: "11.0",
 		author: "Dev Xdragon",
-		role: 0, // Set role to 0 so overall file events aren't blocked, main commands handle checks inside
-		description: "Stock tracker with personal wishlists and overdue prediction.",
+		role: 0,
+		description: "Stock tracker with dynamic image generation, wishlists, and overdue prediction.",
 		category: "stock",
 		guide: "Admin: !gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\n\nMembers: ~gag2list item1, item2\n~gag2 info item"
 	},
@@ -165,7 +202,6 @@ module.exports = {
 		const threadID = event.threadID;
 		const senderID = event.senderID;
 
-		// Check admin permission strictly for admin commands (!gag2stock, !gag2seen, !qr)
 		if (["gag2stock", "gag2seen", "qr"].includes(cmdUsed)) {
 			let threadInfo = await api.getThreadInfo(threadID);
 			let isAdmin = threadInfo.adminIDs.some(el => el.id == senderID);
@@ -181,7 +217,7 @@ module.exports = {
 
 		if (cmdUsed === "qr") {
 			if (action === "insert") {
-				if (!event.messageReply) return api.sendMessage("❌ How to use:\n1. Send a QR image or link.\n2. Reply '!qr insert' to that message.", threadID);
+				if (!event.messageReply) return api.sendMessage("❌ Reply to a QR image/link with '!qr insert'.", threadID);
 				const reply = event.messageReply;
 				let isUpdated = false;
 				let statusMsg = "✅ **QR Insert Update Success!**\n\n";
@@ -204,7 +240,7 @@ module.exports = {
 					}
 				}
 
-				if (!isUpdated) return api.sendMessage("❌ No valid image or URL found in the replied message!", threadID);
+				if (!isUpdated) return api.sendMessage("❌ No valid image or URL found!", threadID);
 
 				let payload = { body: statusMsg.trim() };
 				if (currentQrImageUrl) {
@@ -223,7 +259,7 @@ module.exports = {
 			if (action === "on") {
 				activeSeenSessions.set(threadID, { enabled: true });
 				if (!pollTimer) startPolling(api);
-				return api.sendMessage("✅ Synchronized Last Seen updates enabled!", threadID);
+				return api.sendMessage("✅ Last Seen updates enabled!", threadID);
 			}
 			if (action === "off") {
 				activeSeenSessions.delete(threadID);
@@ -361,7 +397,6 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 			} else {
 				if (line.includes(':')) {
 					let rawName = line.split(':')[0].trim();
-					// Remove symbols, hyphens, and emojis to extract exact item name safely
 					rawName = rawName.replace(/^[-–>]\s*/, '').replace(/[\p{Emoji}\p{Extended_Pictographic}]/gu, '').trim();
 					for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
 						if (rawName.toLowerCase() === knownItem.toLowerCase()) { itemName = knownItem; break; }
@@ -419,7 +454,6 @@ function getAlerts(msg, threadID) {
 			}
 		} else if (trimmedLine.includes(':')) {
 			let leftSide = trimmedLine.split(':')[0].trim();
-			// Strip prefix markers and emojis accurately
 			leftSide = leftSide.replace(/^[-–>]\s*/, '').replace(/[\p{Emoji}\p{Extended_Pictographic}]/gu, '').trim();
 			for (const catItems of Object.values(ALL_GAME_ITEMS)) {
 				for (const known of catItems) {
@@ -463,10 +497,7 @@ function getAlerts(msg, threadID) {
 		combinedAlertText += `\n`;
 	}
 
-	return {
-		text: combinedAlertText,
-		mentions: mentions
-	};
+	return { text: combinedAlertText, mentions: mentions };
 }
 
 function formatRawStockMsg(msg) {
@@ -486,11 +517,121 @@ function formatRawStockMsg(msg) {
 			if (!line.includes('Copyright') && !line.startsWith('@')) out += line + '\n';
 		}
 	}
-	out = out.trim() + '\n\n⏰ ' + new Date().toLocaleString("en-US", { timeZone: TZ });
-	out += `\n\n(Join this group for stock alerts!)👇\n${LAST_SEEN_GROUP_LINK}\n\nCopyright ©️ Gag2 ~ Dev Xdragon`;
-	return out;
+	return out.trim();
 }
 
+// ==========================================
+// IMAGE GENERATION via CANVAS
+// ==========================================
+async function generateStockImage(msg) {
+	const rawText = formatRawStockMsg(msg);
+	const lines = rawText.split('\n');
+	
+	const width = 600;
+	const padding = 30;
+	const lineSpacing = 35;
+	const headerHeight = msg.type === 'weather' ? 80 : 0;
+	// Calculate dynamic height based on text lines + bottom space for credit image
+	const height = headerHeight + (lines.length * lineSpacing) + (padding * 2) + 200; 
+
+	const canvas = createCanvas(width, height);
+	const ctx = canvas.getContext('2d');
+
+	// 1. Draw beautiful Dark Blue Background
+	ctx.fillStyle = '#0a192f'; 
+	ctx.fillRect(0, 0, width, height);
+
+	// 2. Setup Text
+	ctx.fillStyle = '#ffffff';
+	ctx.font = 'bold 20px Arial';
+	let y = padding + headerHeight;
+
+	if (msg.type === 'weather') {
+		ctx.font = 'bold 26px Arial';
+		ctx.fillStyle = '#FFD700'; // Gold Color
+		ctx.fillText("🌦️ WEATHER UPDATE 🌦️", width/2 - 150, padding + 30);
+		ctx.fillStyle = '#ffffff';
+		ctx.font = 'bold 20px Arial';
+	}
+
+	// 3. Draw text and dynamically fetch/draw images
+	for (let line of lines) {
+		let matchedItem = null;
+		let cleanLine = line.replace(/^[-–>]\s*/, '').replace(/[\p{Emoji}\p{Extended_Pictographic}]/gu, '').trim();
+		let rawName = cleanLine.split(':')[0].trim();
+		
+		for (const catItems of Object.values(ALL_GAME_ITEMS)) {
+			for (const known of catItems) {
+				if (rawName.toLowerCase() === known.toLowerCase()) {
+					matchedItem = known;
+					break;
+				}
+			}
+			if (matchedItem) break;
+		}
+
+		if (matchedItem && ITEM_IMAGES[matchedItem]) {
+			try {
+				// Try fetching the image
+				const img = await loadImage(ITEM_IMAGES[matchedItem]);
+				// Draw the image first
+				ctx.drawImage(img, padding, y - 22, 28, 28);
+				// Draw the text next to the image
+				ctx.fillText(line, padding + 40, y);
+			} catch (e) {
+				// Fallback: If image fails to load (e.g. invalid URL), just draw the normal telegram text!
+				ctx.fillText(line, padding, y); 
+			}
+		} else {
+			// If no URL exists for this item yet, use normal text!
+			ctx.fillText(line, padding, y);
+		}
+		y += lineSpacing;
+	}
+
+	// 4. Draw the Credit Image at the bottom
+	try {
+		const creditImg = await loadImage(CREDIT_IMAGE_URL);
+		const cWidth = 350;
+		const cHeight = 150;
+		ctx.drawImage(creditImg, (width/2) - (cWidth/2), height - cHeight - padding, cWidth, cHeight);
+	} catch (e) {
+		console.error("[TGStock] Failed to load Credit Image", e.message);
+	}
+
+	return canvas.toBuffer('image/png');
+}
+
+async function sendStockGroupUpdate(api, threadID, msg) {
+	let msgBody = "";
+	const alertData = getAlerts(msg, threadID);
+	
+	if (alertData.text) msgBody += alertData.text;
+
+	let payload = { body: msgBody.trim() };
+	if (alertData.mentions.length > 0) payload.mentions = alertData.mentions;
+
+	try {
+		// Generate the beautiful Blue Image
+		const generatedImageBuffer = await generateStockImage(msg);
+		payload.attachment = [generatedImageBuffer];
+		
+		// If a QR Code was inserted previously, add it too!
+		if (currentQrImageUrl) {
+			const qrBuffer = (await axios.get(currentQrImageUrl, { responseType: 'stream' })).data;
+			payload.attachment.push(qrBuffer);
+		}
+		
+	} catch (e) {
+		console.error("[TGStock] Canvas Generation Error:", e);
+		// Ultimate Fallback: Just send standard text if canvas crashes completely.
+		payload.body += `\n\n${formatRawStockMsg(msg)}`;
+	}
+
+	api.sendMessage(payload, threadID);
+}
+
+// [Build Last Seen remains unchanged...]
 function buildLastSeenMessage() {
 	let out = "🟢 LIVE STOCK & LAST SEEN 🟢\n";
 	const overdueItems = [];
@@ -526,33 +667,6 @@ function buildLastSeenMessage() {
 
 async function sendLastSeenMessage(api, threadID) {
 	await api.sendMessage(buildLastSeenMessage(), threadID);
-}
-
-async function sendStockGroupUpdate(api, threadID, msg) {
-	let msgBody = "";
-	const alertData = getAlerts(msg, threadID);
-	
-	if (alertData.text) msgBody += alertData.text;
-
-	if (msg.type === 'stock') {
-		msgBody += formatRawStockMsg(msg);
-	} else if (msg.type === 'weather') {
-		msgBody += "🌦️ WEATHER UPDATE 🌦️\n\n" + formatRawStockMsg(msg);
-	}
-
-	let payload = { body: msgBody.trim() };
-	
-	if (alertData.mentions.length > 0) payload.mentions = alertData.mentions;
-
-	if (currentQrImageUrl) {
-		try {
-			payload.attachment = (await axios.get(currentQrImageUrl, { responseType: 'stream' })).data;
-		} catch (e) {
-			console.error("[TGStock] Error attaching QR:", e.message);
-		}
-	}
-
-	api.sendMessage(payload, threadID);
 }
 
 function startPolling(api) {
