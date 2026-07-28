@@ -1,10 +1,12 @@
 const axios = require('axios');
+const crypto = require('crypto');
 const { createCanvas, loadImage } = require('canvas');
 
 let LAST_SEEN_GROUP_LINK = "https://m.me/j/AbbDHWUmwMTwYDLt/?send_source=gc%3Acopy_invite_link_c";
 let currentQrImageUrl = null;
 
-const TELEGRAM_CHANNEL = "growagardenlivestock";
+// NEW API ENDPOINT
+const CUSTOM_API_URL = "https://api.growagarden2stock.com/";
 const TZ = "Asia/Manila";
 const OVERDUE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000; // 7 Days
 
@@ -14,8 +16,7 @@ const activeSeenSessions = new Map();
 const lastSentHash = new Map();
 const threadWishlists = new Map(); 
 
-// The Image Dictionary provided by you. 
-// Note: Direct image links (like Discord) work best for Canvas rendering.
+// Replace these URLs with Discord Links when you upload your custom icons.
 const ITEM_IMAGES = {
 	"Carrot": "https://growagarden2.fandom.com/wiki/File:CarrotSeed.png",
 	"Strawberry": "https://growagarden2.fandom.com/wiki/File:StrawberrySeed.png",
@@ -78,7 +79,6 @@ const ALL_GAME_ITEMS = {
 	]
 };
 
-// Flatten items for easy lookup
 const ITEM_LOOKUP = {};
 for (const [cat, items] of Object.entries(ALL_GAME_ITEMS)) {
 	for (const item of items) {
@@ -98,7 +98,7 @@ let currentStockItems = new Set();
 let isDatabaseInitialized = false;
 
 // ==========================================
-// UNIVERSAL CHAT LISTENER (Bypasses Admin Role & Prefix for Everyone)
+// UNIVERSAL CHAT LISTENER (Bypasses Admin Role)
 // ==========================================
 async function processCustomPrefix(event, api) {
 	if (!event || !event.body) return;
@@ -109,7 +109,7 @@ async function processCustomPrefix(event, api) {
 	if (text.toLowerCase().startsWith("~gag2list")) {
 		const itemsRaw = text.substring(9).trim();
 		if (!itemsRaw) {
-			return api.sendMessage("❌ How to use: ~gag2list Item1, Item2, Item3\nExample: ~gag2list Bamboo, Mushroom", threadID);
+			return api.sendMessage("❌ How to use: ~gag2list Item1, Item2\nExample: ~gag2list Bamboo, Mushroom", threadID);
 		}
 
 		const requestedItems = itemsRaw.split(",").map(i => i.trim().toLowerCase());
@@ -125,9 +125,7 @@ async function processCustomPrefix(event, api) {
 			if (userInfo && userInfo[senderID] && userInfo[senderID].name) {
 				userName = userInfo[senderID].name;
 			}
-		} catch (e) {
-			console.error("[TGStock] Failed to fetch user name:", e.message);
-		}
+		} catch (e) {}
 
 		if (!threadList.has(senderID)) {
 			threadList.set(senderID, { name: userName, items: new Set() });
@@ -147,7 +145,7 @@ async function processCustomPrefix(event, api) {
 
 		let replyMsg = `🎯 **Personal Wishlist Updated for ${userName}!**\n\n`;
 		if (addedItems.length > 0) replyMsg += `✅ Added: ${addedItems.join(", ")}\n`;
-		if (invalidItems.length > 0) replyMsg += `❌ Invalid/Not found: ${invalidItems.join(", ")}\n`;
+		if (invalidItems.length > 0) replyMsg += `❌ Invalid: ${invalidItems.join(", ")}\n`;
 		replyMsg += `\nI will mention you when these arrive!`;
 		
 		return api.sendMessage(replyMsg, threadID);
@@ -155,13 +153,9 @@ async function processCustomPrefix(event, api) {
 
 	if (text.toLowerCase().startsWith("~gag2 info")) {
 		const searchRaw = text.substring(10).trim().toLowerCase();
-		if (!searchRaw) {
-			return api.sendMessage("❌ How to use: ~gag2 info {item}\nExample: ~gag2 info Super Sprinkler", threadID);
-		}
+		if (!searchRaw) return api.sendMessage("❌ Use: ~gag2 info {item}", threadID);
 
-		if (!ITEM_LOOKUP[searchRaw]) {
-			return api.sendMessage(`❌ Item "${searchRaw}" not found in the game database.`, threadID);
-		}
+		if (!ITEM_LOOKUP[searchRaw]) return api.sendMessage(`❌ Item "${searchRaw}" not found.`, threadID);
 
 		const exactItem = ITEM_LOOKUP[searchRaw];
 		const timestamp = lastSeenDB[exactItem.category]?.[exactItem.name] || 0;
@@ -170,8 +164,7 @@ async function processCustomPrefix(event, api) {
 		let statusStr = isOnStock ? "✅ **Currently On Stock!**" : "❌ Not on stock";
 		let timeStr = timestamp === 0 ? "Never Seen" : `${getTimeAgo(Date.now() - timestamp)} (${formatExactDate(timestamp)})`;
 
-		const replyMsg = `🔍 **Item Lookup**\n\n${exactItem.category.split(' ')[0]} **${exactItem.name}**\nStatus: ${statusStr}\nLast Seen: ${timeStr}`;
-		return api.sendMessage(replyMsg, threadID);
+		return api.sendMessage(`🔍 **Item Lookup**\n\n${exactItem.category.split(' ')[0]} **${exactItem.name}**\nStatus: ${statusStr}\nLast Seen: ${timeStr}`, threadID);
 	}
 }
 
@@ -179,21 +172,16 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "11.0",
+		version: "12.0",
 		author: "Dev Xdragon",
 		role: 0,
-		description: "Stock tracker with dynamic image generation, wishlists, and overdue prediction.",
+		description: "Stock tracker strictly using Custom API with full image generation.",
 		category: "stock",
-		guide: "Admin: !gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\n\nMembers: ~gag2list item1, item2\n~gag2 info item"
+		guide: "Admin: !gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\nMembers: ~gag2list item1\n~gag2 info item"
 	},
 
-	onChat: async function({ event, api }) {
-		return processCustomPrefix(event, api);
-	},
-
-	handleEvent: async function({ event, api }) {
-		return processCustomPrefix(event, api);
-	},
+	onChat: async function({ event, api }) { return processCustomPrefix(event, api); },
+	handleEvent: async function({ event, api }) { return processCustomPrefix(event, api); },
 
 	onStart: async ({ message, event, args, api }) => {
 		const fullText = event.body ? event.body.trim() : "";
@@ -205,13 +193,11 @@ module.exports = {
 		if (["gag2stock", "gag2seen", "qr"].includes(cmdUsed)) {
 			let threadInfo = await api.getThreadInfo(threadID);
 			let isAdmin = threadInfo.adminIDs.some(el => el.id == senderID);
-			if (!isAdmin) {
-				return api.sendMessage("❌ You do not have permission to use admin stock commands.", threadID);
-			}
+			if (!isAdmin) return api.sendMessage("❌ Admin permission required.", threadID);
 		}
 
 		if (!isDatabaseInitialized) {
-			await updateChannelData(true); 
+			await updateChannelData(); 
 			isDatabaseInitialized = true;
 		}
 
@@ -220,14 +206,14 @@ module.exports = {
 				if (!event.messageReply) return api.sendMessage("❌ Reply to a QR image/link with '!qr insert'.", threadID);
 				const reply = event.messageReply;
 				let isUpdated = false;
-				let statusMsg = "✅ **QR Insert Update Success!**\n\n";
+				let statusMsg = "✅ **QR Insert Success!**\n\n";
 
 				if (reply.attachments && reply.attachments.length > 0) {
 					const imgAtt = reply.attachments.find(a => a.type === 'photo' || a.type === 'image' || a.url);
 					if (imgAtt) {
 						currentQrImageUrl = imgAtt.url;
 						isUpdated = true;
-						statusMsg += "🖼️ **QR Image:** Dynamically Updated!\n";
+						statusMsg += "🖼️ **QR Image Added!**\n";
 					}
 				}
 
@@ -236,23 +222,13 @@ module.exports = {
 					if (urlMatch) {
 						LAST_SEEN_GROUP_LINK = urlMatch[0];
 						isUpdated = true;
-						statusMsg += `🔗 **Group Link:** ${LAST_SEEN_GROUP_LINK}\n`;
+						statusMsg += `🔗 **Link:** ${LAST_SEEN_GROUP_LINK}\n`;
 					}
 				}
 
-				if (!isUpdated) return api.sendMessage("❌ No valid image or URL found!", threadID);
-
-				let payload = { body: statusMsg.trim() };
-				if (currentQrImageUrl) {
-					try {
-						payload.attachment = (await axios.get(currentQrImageUrl, { responseType: 'stream' })).data;
-					} catch (e) {
-						console.error("[TGStock] Error attaching QR:", e.message);
-					}
-				}
-				return api.sendMessage(payload, threadID);
+				if (!isUpdated) return api.sendMessage("❌ No image or URL found!", threadID);
+				return api.sendMessage(statusMsg.trim(), threadID);
 			}
-			return api.sendMessage("❌ Use: !qr insert (reply to image/link)", threadID);
 		}
 
 		if (cmdUsed === "gag2seen") {
@@ -266,13 +242,13 @@ module.exports = {
 				return api.sendMessage("✅ Last Seen updates disabled!", threadID);
 			}
 			if (action === "now" || action === "") {
-				await updateChannelData(false);
+				await updateChannelData();
 				return sendLastSeenMessage(api, threadID);
 			}
 		}
 
 		if (action === "on") {
-			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
+			activeStockSessions.set(threadID, { enabled: true });
 			if (!pollTimer) startPolling(api);
 			return api.sendMessage("✅ Auto stock updates enabled!", threadID);
 		}
@@ -281,96 +257,60 @@ module.exports = {
 			return api.sendMessage("✅ Auto stock disabled!", threadID);
 		}
 		if (action === "now" || action === "") {
-			const latestMsg = await updateChannelData(false);
-			if (!latestMsg) return api.sendMessage("❌ Could not fetch data from Telegram!", threadID);
+			const latestMsg = await updateChannelData();
+			if (!latestMsg) return api.sendMessage("❌ Could not fetch data from Custom API!", threadID);
 			await sendStockGroupUpdate(api, threadID, latestMsg);
 			return;
 		}
 
-		return api.sendMessage("❌ Stock commands:\n!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert\n\nFor members: ~gag2list and ~gag2 info", threadID);
+		return api.sendMessage("❌ Commands:\n!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert", threadID);
 	}
 };
 
 // ==========================================
-// CORE FUNCTIONS
+// CUSTOM API DATA FETCHER
 // ==========================================
-async function fetchChannelHistory(pages = 1) {
-	const allMessages = [];
-	let beforeId = null;
-
-	for (let p = 0; p < pages; p++) {
-		let url = `https://t.me/s/${TELEGRAM_CHANNEL}`;
-		if (beforeId) url += `?before=${beforeId}`;
-
-		try {
-			const res = await axios.get(url, { headers: { "User-Agent": "Mozilla/5.0" }, timeout: 15000 });
-			const html = res.data;
-			const msgRegex = /<div class="tgme_widget_message[^>]+data-post="([^"]+)"[\s\S]*?<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>[\s\S]*?<time datetime="([^"]+)"/g;
-			let match;
-			let lowestId = Infinity;
-			let foundAny = false;
-
-			while ((match = msgRegex.exec(html)) !== null) {
-				const id = parseInt(match[1].split('/')[1]) || 0;
-				const rawHtml = match[2];
-				const timestamp = new Date(match[3]).getTime();
-				if (id < lowestId && id > 0) lowestId = id;
-				foundAny = true;
-
-				let text = rawHtml
-					.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/`Copyright[\s\S]*?`/g, '')
-					.replace(/@\w+/g, '').replace(/&nbsp;/gi, ' ').replace(/&gt;/gi, '>')
-					.replace(/&lt;/gi, '<').replace(/&#39;/gi, "'").replace(/&#34;/gi, '"')
-					.replace(/&amp;/gi, '&').replace(/\u00A0/g, ' ').replace(/\n{2,}/g, '\n').trim();
-
-				if (text) allMessages.push({ id, text, timestamp });
-			}
-			if (!foundAny) break;
-			beforeId = lowestId;
-		} catch (e) {
-			console.error("[TGStock] Error:", e.message);
-			break;
+async function fetchChannelHistory() {
+	try {
+		const res = await axios.get(CUSTOM_API_URL, { timeout: 15000 });
+		
+		let rawText = "";
+		if (typeof res.data === 'string') {
+			rawText = res.data;
+		} else if (res.data && typeof res.data === 'object') {
+			rawText = res.data.text || res.data.content || res.data.message || res.data.stock || JSON.stringify(res.data);
 		}
-	}	
 
-	const uniqueMessages = [];
-	const seenIds = new Set();
-	for (const m of allMessages) {
-		if (!seenIds.has(m.id)) {
-			seenIds.add(m.id);
-			uniqueMessages.push(m);
+		if (!rawText || rawText.trim() === "") return null;
+
+		// Clean HTML if API sends raw HTML blocks by mistake
+		rawText = rawText.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+
+		const hashId = crypto.createHash('md5').update(rawText).digest('hex');
+		
+		let type = 'stock';
+		if (rawText.toUpperCase().includes('WEATHER') || rawText.toUpperCase().includes('MOON:') || rawText.toUpperCase().includes('EVENT:')) {
+			type = 'weather';
 		}
+
+		return {
+			id: hashId,
+			text: rawText,
+			timestamp: Date.now(),
+			type: type
+		};
+	} catch (e) {
+		console.error("[TGStock] Custom API Error:", e.message);
+		return null;
 	}
-	uniqueMessages.sort((a, b) => a.id - b.id);
-	return uniqueMessages;
 }
 
-async function updateChannelData(isInit = false) {
-	const pagesToFetch = isInit ? 25 : 1; 
-	const messages = await fetchChannelHistory(pagesToFetch);
-	if (!messages || messages.length === 0) return null;
-
-	let latestStock = null;
-	let latestWeather = null;
-
-	for (const msg of messages) {
-		const upperText = msg.text.toUpperCase();
-		if (upperText.includes('SHOP STOCK')) {
-			latestStock = msg;
-			updateLastSeenDB(msg.text, msg.timestamp, false);
-		} else if (upperText.includes('WEATHER') || upperText.includes('MOON:') || upperText.includes('EVENT:')) {
-			latestWeather = msg;
-			updateLastSeenDB(msg.text, msg.timestamp, false);
-		}
-	}
-
-	const latest = (latestWeather && latestWeather.id > (latestStock?.id || 0)) ? latestWeather : latestStock;
-	if (latest) latest.type = (latest.text.toUpperCase().includes('WEATHER') || latest.text.toUpperCase().includes('MOON:')) ? 'weather' : 'stock';
+async function updateChannelData() {
+	const latest = await fetchChannelHistory();
+	if (!latest) return null;
 
 	currentStockItems.clear();
-	if (latestStock) updateLastSeenDB(latestStock.text, latestStock.timestamp, true);
-	if (latestWeather) updateLastSeenDB(latestWeather.text, latestWeather.timestamp, (latest && latestWeather.id === latest.id));
-
+	updateLastSeenDB(latest.text, latest.timestamp, true);
 	return latest;
 }
 
@@ -420,11 +360,7 @@ function getTimeAgo(ms) {
 	if (ms <= 0) return "Never Seen";
 	const min = Math.floor(ms / 60000);
 	if (min < 1) return "just now";
-	const hr = Math.floor(min / 60), days = Math.floor(hr / 24), weeks = Math.floor(days / 7), months = Math.floor(days / 30), years = Math.floor(days / 365);
-	
-	if (years > 0) return `${years} year${years !== 1 ? 's' : ''} ago`;
-	if (months > 0) return `${months} month${months !== 1 ? 's' : ''} ago`;
-	if (weeks > 0) return `${weeks} week${weeks !== 1 ? 's' : ''} ago`;
+	const hr = Math.floor(min / 60), days = Math.floor(hr / 24);
 	if (days > 0) return `${days} day${days !== 1 ? 's' : ''} ago`;
 	if (hr > 0) return `${hr} hr${hr !== 1 ? 's' : ''} ago`;
 	return `${min} min${min !== 1 ? 's' : ''} ago`;
@@ -440,27 +376,20 @@ function getAlerts(msg, threadID) {
 
 	for (const line of lines) {
 		const trimmedLine = line.trim();
-		const upperLine = trimmedLine.toUpperCase();
-		const isWeatherLine = msg.type === 'weather' || upperLine.includes('MOON:') || upperLine.includes('EVENT:');
-
+		const isWeatherLine = msg.type === 'weather' || trimmedLine.toUpperCase().includes('MOON:');
 		let detectedItem = null;
 
 		if (isWeatherLine) {
 			for (const item of ALL_GAME_ITEMS["Moon & Weather 🌙"]) {
 				if (trimmedLine.toLowerCase().replace(/[\s-]/g, '').includes(item.toLowerCase().replace(/[\s-]/g, ''))) {
-					detectedItem = item;
-					break; 
+					detectedItem = item; break; 
 				}
 			}
 		} else if (trimmedLine.includes(':')) {
-			let leftSide = trimmedLine.split(':')[0].trim();
-			leftSide = leftSide.replace(/^[-–>]\s*/, '').replace(/[\p{Emoji}\p{Extended_Pictographic}]/gu, '').trim();
+			let leftSide = trimmedLine.split(':')[0].trim().replace(/^[-–>]\s*/, '').replace(/[\p{Emoji}\p{Extended_Pictographic}]/gu, '').trim();
 			for (const catItems of Object.values(ALL_GAME_ITEMS)) {
 				for (const known of catItems) {
-					if (leftSide.toLowerCase() === known.toLowerCase()) {
-						detectedItem = known;
-						break;
-					}
+					if (leftSide.toLowerCase() === known.toLowerCase()) { detectedItem = known; break; }
 				}
 				if (detectedItem) break;
 			}
@@ -468,71 +397,40 @@ function getAlerts(msg, threadID) {
 
 		if (detectedItem) {
 			for (const [userID, userData] of localWishlist.entries()) {
-				const userItems = userData.items || userData;
-				const userName = userData.name || "Player";
-				const hasRequested = (userItems instanceof Set) ? userItems.has(detectedItem) : false;
-
-				if (hasRequested) {
-					if (!userMatches.has(userID)) {
-						userMatches.set(userID, { name: userName, items: [] });
-					}
-					if (!userMatches.get(userID).items.includes(detectedItem)) {
-						userMatches.get(userID).items.push(detectedItem);
-					}
+				if ((userData.items || userData).has(detectedItem)) {
+					if (!userMatches.has(userID)) userMatches.set(userID, { name: userData.name || "Player", items: [] });
+					if (!userMatches.get(userID).items.includes(detectedItem)) userMatches.get(userID).items.push(detectedItem);
 				}
 			}
 		}
 	}
 	
 	let combinedAlertText = "";
-	
 	for (const [userID, matchData] of userMatches.entries()) {
 		const mentionTag = `@${matchData.name}`;
 		mentions.push({ tag: mentionTag, id: userID });
-		
 		combinedAlertText += `${mentionTag}, Your Requested item is on stock👇\n`;
-		for (const item of matchData.items) {
-			combinedAlertText += `- ${item}\n`;
-		}
+		for (const item of matchData.items) combinedAlertText += `- ${item}\n`;
 		combinedAlertText += `\n`;
 	}
 
 	return { text: combinedAlertText, mentions: mentions };
 }
 
-function formatRawStockMsg(msg) {
-	const lines = msg.text.split('\n').map(l => l.trim()).filter(l => l);
-	let out = "";
-	if (msg.type === 'weather') {
-		for (const line of lines) {
-			const cleanLine = line.replace(/🌦️/g, '').trim();
-			if (cleanLine && !cleanLine.match(/^\d+$/) && !cleanLine.includes('Copyright')) out += cleanLine + '\n';
-		}
-	} else {
-		for (let i = 1; i < lines.length; i++) {
-			const line = lines[i];
-			if (line.includes('SHOP STOCK')) { out += `\n${line.trim()}\n`; continue; }
-			if (line.startsWith('-') || line.startsWith('>')) { out += '  ' + line + '\n'; continue; }
-			if (line.match(/^[🪴🌱⚙️📦🌿]/)) continue;
-			if (!line.includes('Copyright') && !line.startsWith('@')) out += line + '\n';
-		}
-	}
-	return out.trim();
-}
-
 // ==========================================
-// IMAGE GENERATION via CANVAS
+// ALL-IN-ONE IMAGE GENERATION via CANVAS
 // ==========================================
 async function generateStockImage(msg) {
-	const rawText = formatRawStockMsg(msg);
-	const lines = rawText.split('\n');
+	// Filter out empty lines to correctly calculate height
+	const lines = msg.text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 	
 	const width = 600;
 	const padding = 30;
 	const lineSpacing = 35;
-	const headerHeight = msg.type === 'weather' ? 80 : 0;
-	// Calculate dynamic height based on text lines + bottom space for credit image
-	const height = headerHeight + (lines.length * lineSpacing) + (padding * 2) + 200; 
+	const creditHeight = 150;
+	
+	// Dynamic Height: Lines height + top padding + bottom padding + credit image space
+	const height = (lines.length * lineSpacing) + (padding * 3) + creditHeight; 
 
 	const canvas = createCanvas(width, height);
 	const ctx = canvas.getContext('2d');
@@ -541,22 +439,17 @@ async function generateStockImage(msg) {
 	ctx.fillStyle = '#0a192f'; 
 	ctx.fillRect(0, 0, width, height);
 
-	// 2. Setup Text
+	// 2. Setup Fonts (Including Emojis as fallback)
 	ctx.fillStyle = '#ffffff';
-	ctx.font = 'bold 20px Arial';
-	let y = padding + headerHeight;
+	// Apple Color Emoji and Segoe UI Emoji will render API emojis natively if PNG fails
+	ctx.font = 'bold 22px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Arial"';
+	
+	let y = padding + 20;
 
-	if (msg.type === 'weather') {
-		ctx.font = 'bold 26px Arial';
-		ctx.fillStyle = '#FFD700'; // Gold Color
-		ctx.fillText("🌦️ WEATHER UPDATE 🌦️", width/2 - 150, padding + 30);
-		ctx.fillStyle = '#ffffff';
-		ctx.font = 'bold 20px Arial';
-	}
-
-	// 3. Draw text and dynamically fetch/draw images
+	// 3. Draw text and fetch/draw exact API Emojis / PNGs
 	for (let line of lines) {
 		let matchedItem = null;
+		// Clean the line solely to find the item name, but we will draw the RAW line
 		let cleanLine = line.replace(/^[-–>]\s*/, '').replace(/[\p{Emoji}\p{Extended_Pictographic}]/gu, '').trim();
 		let rawName = cleanLine.split(':')[0].trim();
 		
@@ -572,66 +465,59 @@ async function generateStockImage(msg) {
 
 		if (matchedItem && ITEM_IMAGES[matchedItem]) {
 			try {
-				// Try fetching the image
 				const img = await loadImage(ITEM_IMAGES[matchedItem]);
-				// Draw the image first
-				ctx.drawImage(img, padding, y - 22, 28, 28);
-				// Draw the text next to the image
-				ctx.fillText(line, padding + 40, y);
+				ctx.drawImage(img, padding, y - 24, 30, 30);
+				
+				// Draw the exact line (containing text and API emojis) next to it
+				ctx.fillText(line, padding + 45, y);
 			} catch (e) {
-				// Fallback: If image fails to load (e.g. invalid URL), just draw the normal telegram text!
+				// Fallback: If PNG fails, just draw the text (which uses Canvas Emoji Font)
 				ctx.fillText(line, padding, y); 
 			}
 		} else {
-			// If no URL exists for this item yet, use normal text!
+			// No PNG defined? Draw exact API line (Canvas will render the emoji from the API)
 			ctx.fillText(line, padding, y);
 		}
 		y += lineSpacing;
 	}
 
-	// 4. Draw the Credit Image at the bottom
+	// 4. Draw the Credit Image at the bottom (Inside the same picture!)
 	try {
 		const creditImg = await loadImage(CREDIT_IMAGE_URL);
 		const cWidth = 350;
-		const cHeight = 150;
-		ctx.drawImage(creditImg, (width/2) - (cWidth/2), height - cHeight - padding, cWidth, cHeight);
+		ctx.drawImage(creditImg, (width/2) - (cWidth/2), height - creditHeight - padding, cWidth, creditHeight);
 	} catch (e) {
-		console.error("[TGStock] Failed to load Credit Image", e.message);
+		console.error("[TGStock] Failed to load Credit Image:", e.message);
 	}
 
 	return canvas.toBuffer('image/png');
 }
 
 async function sendStockGroupUpdate(api, threadID, msg) {
-	let msgBody = "";
 	const alertData = getAlerts(msg, threadID);
 	
-	if (alertData.text) msgBody += alertData.text;
-
-	let payload = { body: msgBody.trim() };
+	// Message body is strictly for Mentions now (Image handles everything else)
+	let payload = { body: alertData.text || "🟢 **STOCK UPDATE**" };
 	if (alertData.mentions.length > 0) payload.mentions = alertData.mentions;
 
 	try {
-		// Generate the beautiful Blue Image
+		// Generate the All-In-One Blue Image
 		const generatedImageBuffer = await generateStockImage(msg);
 		payload.attachment = [generatedImageBuffer];
 		
-		// If a QR Code was inserted previously, add it too!
+		// Attach QR Code if user configured it
 		if (currentQrImageUrl) {
 			const qrBuffer = (await axios.get(currentQrImageUrl, { responseType: 'stream' })).data;
 			payload.attachment.push(qrBuffer);
 		}
-		
 	} catch (e) {
-		console.error("[TGStock] Canvas Generation Error:", e);
-		// Ultimate Fallback: Just send standard text if canvas crashes completely.
-		payload.body += `\n\n${formatRawStockMsg(msg)}`;
+		console.error("[TGStock] Canvas Error:", e);
+		payload.body += `\n\n${msg.text}`; // Failsafe
 	}
 
 	api.sendMessage(payload, threadID);
 }
 
-// [Build Last Seen remains unchanged...]
 function buildLastSeenMessage() {
 	let out = "🟢 LIVE STOCK & LAST SEEN 🟢\n";
 	const overdueItems = [];
@@ -641,26 +527,19 @@ function buildLastSeenMessage() {
 		out += `\n【 ${category} 】\n\n`;
 		for (const itemName of itemsList) {
 			const timestamp = lastSeenDB[category]?.[itemName] || 0;
-			
 			if (currentStockItems.has(itemName)) {
-				out += `✅ ${itemName}: ${category === "Moon & Weather 🌙" ? "Active" : "On Stock"}\n\n`; 
+				out += `✅ ${itemName}: Active\n\n`; 
 			} else if (timestamp === 0) {
 				out += `❌ ${itemName}: Never Seen\n\n`; 
 			} else {
 				const timeDiff = now - timestamp;
-				out += `🕒 ${itemName}: ${getTimeAgo(timeDiff)} (${formatExactDate(timestamp)})\n\n`; 
-				
-				if (timeDiff > OVERDUE_THRESHOLD_MS) {
-					overdueItems.push(`${itemName} (${Math.floor(timeDiff / (1000 * 60 * 60 * 24))} days)`);
-				}
+				out += `🕒 ${itemName}: ${getTimeAgo(timeDiff)}\n\n`; 
+				if (timeDiff > OVERDUE_THRESHOLD_MS) overdueItems.push(`${itemName}`);
 			}
 		}
 	}
 
-	if (overdueItems.length > 0) {
-		out += `\n🔥 **OVERDUE ITEMS (7+ Days)** 🔥\nThese might drop soon:\n- ${overdueItems.join('\n- ')}\n`;
-	}
-	
+	if (overdueItems.length > 0) out += `\n🔥 **OVERDUE (7+ Days)** 🔥\n- ${overdueItems.join('\n- ')}\n`;
 	out += `\n⏰ Last Updated: ${new Date().toLocaleString("en-US", { timeZone: TZ })}\n\nCopyright ©️ Gag2 ~ Dev Xdragon`;
 	return out.trim();
 }
@@ -671,28 +550,20 @@ async function sendLastSeenMessage(api, threadID) {
 
 function startPolling(api) {
 	if (pollTimer) return;
-	console.log("[TGStock] Polling started...");
+	console.log("[TGStock] Polling started from Custom API...");
 
 	pollTimer = setInterval(async () => {
-		const msg = await updateChannelData(false); 
+		const msg = await updateChannelData(); 
 		if (msg) {
-			const hash = JSON.stringify({ id: msg.id, type: msg.type });
-			
-			for (const [threadID, session] of activeStockSessions.entries()) {
-				if (session.enabled) {
-					if (lastSentHash.get(`stock_${threadID}`) !== hash) {
-						lastSentHash.set(`stock_${threadID}`, hash);
-						sendStockGroupUpdate(api, threadID, msg);
-					}
+			// Compare hashes to see if the custom API sent new data
+			if (lastSentHash.get("global_api_hash") !== msg.id) {
+				lastSentHash.set("global_api_hash", msg.id);
+				
+				for (const [threadID, session] of activeStockSessions.entries()) {
+					if (session.enabled) sendStockGroupUpdate(api, threadID, msg);
 				}
-			}
-
-			for (const [threadID, session] of activeSeenSessions.entries()) {
-				if (session.enabled) {
-					if (lastSentHash.get(`seen_${threadID}`) !== hash) {
-						lastSentHash.set(`seen_${threadID}`, hash);
-						sendLastSeenMessage(api, threadID);
-					}
+				for (const [threadID, session] of activeSeenSessions.entries()) {
+					if (session.enabled) sendLastSeenMessage(api, threadID);
 				}
 			}
 		}
