@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 let LAST_SEEN_GROUP_LINK = "https://m.me/j/AbbDHWUmwMTwYDLt/?send_source=gc%3Acopy_invite_link_c";
-let currentQrImageUrl = null; // Dito mai-save ang QR code image URL galing sa !qr insert
+let currentQrImageUrl = null;
 
 const TELEGRAM_CHANNEL = "growagardenlivestock";
 const TZ = "Asia/Manila";
@@ -13,10 +13,11 @@ const lastSentHash = new Map();
 
 const ALL_GAME_ITEMS = {
 	"Seed 🌱": [
-		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Bamboo", "Corn", "Banana", 
-		"Apple", "Grape", "Pineapple", "Sun Bloom", "Poison Apple", "Coconut", "Mango", 
-		"Cactus", "Cherry", "Green Bean", "Acorn", "Venom Spitter", "Mushroom", 
-		"Dragon's Breath", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Fire Fern", "Sunflower"
+		"Carrot", "Strawberry", "Blueberry", "Tulip", "Tomato", "Baby Cactus", "Bamboo", "Corn", "Banana", 
+		"Apple", "Grape", "Pineapple", "Horned Melon", "Sun Bloom", "Poison Apple", "Coconut", "Mango", 
+		"Cactus", "Cherry", "Green Bean", "Acorn", "Venom Spitter", "Mushroom", "Glow Mushroom",
+		"Dragon's Breath", "Star Fruit", "Moon Bloom", "Hypno Bloom", "Fire Fern", "Sunflower",
+		"Dragon Fruit", "Poison Ivy", "Ghost Pepper", "Pomegranate", "Venus Fly Trap", "Eclipse Bloom"
 	],
 	"Gear ⚙️": [
 		"Common Watering Can", "Common Sprinkler", "Uncommon Sprinkler", "Jump Mushroom", 
@@ -32,8 +33,20 @@ const ALL_GAME_ITEMS = {
 	],
 	"Moon & Weather 🌙": [
 		"Rainbowmoon", "Mega Moon", "Bloodmoon", "Goldmoon", "Sunburst", 
-		"Snowfall", "Rainbow", "Meteor", "Aurora", "Rain", "Snow", "Lightning", "Blizzard"
+		"Snowfall", "Rainbow", "Aurora", "Rain", "Lightning"
 	]
+};
+
+// Exact Tiers mapped directly from Wiki screenshots
+const ITEM_TIERS = {
+	"Blueberry": "Common", "Strawberry": "Common",
+	"Apple": "Uncommon", "Tomato": "Uncommon", "Tulip": "Uncommon",
+	"Baby Cactus": "Rare", "Bamboo": "Rare", "Cactus": "Rare", "Corn": "Rare", "Horned Melon": "Rare", "Pineapple": "Rare",
+	"Banana": "Epic", "Coconut": "Epic", "Glow Mushroom": "Epic", "Grape": "Epic", "Mango": "Epic", "Mushroom": "Epic",
+	"Acorn": "Legendary", "Cherry": "Legendary", "Dragon Fruit": "Legendary", "Fire Fern": "Legendary", "Poison Ivy": "Legendary", "Sunflower": "Legendary", "Rocket Pop": "Legendary",
+	"Ghost Pepper": "Mythic", "Poison Apple": "Mythic", "Pomegranate": "Mythic", "Venom Spitter": "Mythic", "Venus Fly Trap": "Mythic", "Atlantic Giant Pumpkin": "Mythic",
+	"Dragon's Breath": "Super", "Hypno Bloom": "Super", "Moon Bloom": "Super", "Sun Bloom": "Super", "Star Fruit": "Super",
+	"Eclipse Bloom": "Secret", "Amber Cranberry": "Secret"
 };
 
 const lastSeenDB = {};
@@ -51,12 +64,12 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "9.2",
+		version: "10.4",
 		author: "Dev Xdragon",
 		role: 1,
-		description: "Unified stock, synchronized last seen tracker, and dynamic QR insert with dynamic target alerts",
+		description: "GAG2 Live Stock and Deep Last Seen Tracker",
 		category: "stock",
-		guide: "!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert (i-reply sa image o link)"
+		guide: "!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert"
 	},
 
 	onStart: async ({ message, event, args, api }) => {
@@ -70,41 +83,37 @@ module.exports = {
 			isDatabaseInitialized = true;
 		}
 
-		// ==========================================
 		// 1. COMMAND: !qr insert
-		// ==========================================
 		if (cmdUsed === "qr") {
 			if (action === "insert") {
 				if (!event.messageReply) {
-					return message.reply("❌ Paano gamitin:\n1. Mag-send ng QR image o link sa chat.\n2. I-reply ang '!qr insert' sa message na iyon.");
+					return message.reply("❌ Reply to an image or link with '!qr insert'");
 				}
 
 				const reply = event.messageReply;
 				let isUpdated = false;
-				let statusMsg = "✅ **QR Insert Update Success!**\n\n";
+				let statusMsg = "✅ GAG2 CONFIG UPDATED\n━━━━━━━━━━━━━━━━━━━━\n";
 
-				// Check if reply has attachment (Image/QR)
 				if (reply.attachments && reply.attachments.length > 0) {
 					const imgAtt = reply.attachments.find(a => a.type === 'photo' || a.type === 'image' || a.url);
 					if (imgAtt) {
 						currentQrImageUrl = imgAtt.url;
 						isUpdated = true;
-						statusMsg += "🖼️ **QR Image:** Dynamically Updated!\n";
+						statusMsg += "🖼️ QR Image Attached!\n";
 					}
 				}
 
-				// Check if reply has text/link
 				if (reply.body) {
 					const urlMatch = reply.body.match(/https?:\/\/[^\s]+/i);
 					if (urlMatch) {
 						LAST_SEEN_GROUP_LINK = urlMatch[0];
 						isUpdated = true;
-						statusMsg += `🔗 **Group Link:** ${LAST_SEEN_GROUP_LINK}\n`;
+						statusMsg += `🔗 Group Link: ${LAST_SEEN_GROUP_LINK}\n`;
 					}
 				}
 
 				if (!isUpdated) {
-					return message.reply("❌ Walang nahanap na valid na image attachment o URL link sa nireplyan mong message!");
+					return message.reply("❌ Walang nahanap na valid image o link sa nireplyan mo.");
 				}
 
 				let payload = { body: statusMsg.trim() };
@@ -118,17 +127,15 @@ module.exports = {
 				return api.sendMessage(payload, threadID);
 			}
 
-			return message.reply("❌ Gamitin ang: !qr insert (i-reply sa image o link)");
+			return message.reply("❌ Usage: !qr insert (Reply to image or link)");
 		}
 
-		// ==========================================
-		// 2. COMMAND: !gag2seen (Text-Only, Walang QR / Link)
-		// ==========================================
+		// 2. COMMAND: !gag2seen
 		if (cmdUsed === "gag2seen") {
 			if (action === "on") {
 				activeSeenSessions.set(threadID, { enabled: true });
 				if (!pollTimer) startPolling(api);
-				return message.reply("✅ Synchronized Last Seen updates enabled for this group!");
+				return message.reply("🟢 Last Seen tracker enabled!");
 			}
 
 			if (action === "off") {
@@ -137,7 +144,7 @@ module.exports = {
 					clearInterval(pollTimer);
 					pollTimer = null;
 				}
-				return message.reply("✅ Last Seen updates disabled for this group!");
+				return message.reply("🔴 Last Seen tracker disabled!");
 			}
 
 			if (action === "now" || action === "") {
@@ -145,36 +152,36 @@ module.exports = {
 				return sendLastSeenMessage(api, threadID);
 			}
 
-			return message.reply("❌ Mga command sa Last Seen:\n!gag2seen on\n!gag2seen off\n!gag2seen now");
+			return message.reply("❌ Commands:\n!gag2seen on\n!gag2seen off\n!gag2seen now");
 		}
 
-		// ==========================================
-		// 3. COMMAND: !gag2stock (May QR Image at Link)
-		// ==========================================
-		if (action === "on") {
-			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
-			if (!pollTimer) startPolling(api);
-			return message.reply("✅ Auto stock updates enabled for this group!");
-		}
-
-		if (action === "off") {
-			activeStockSessions.delete(threadID);
-			if (activeStockSessions.size === 0 && activeSeenSessions.size === 0 && pollTimer) {
-				clearInterval(pollTimer);
-				pollTimer = null;
+		// 3. COMMAND: !gag2stock
+		if (cmdUsed === "gag2stock") {
+			if (action === "on") {
+				activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
+				if (!pollTimer) startPolling(api);
+				return message.reply("🟢 Live Stock updates enabled!");
 			}
-			return message.reply("✅ Auto stock disabled!");
-		}
 
-		if (action === "now" || action === "") {
-			const latestMsg = await updateChannelData(false);
-			if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
-			
-			await sendStockGroupUpdate(api, threadID, latestMsg, event.participantIDs || []);
-			return;
-		}
+			if (action === "off") {
+				activeStockSessions.delete(threadID);
+				if (activeStockSessions.size === 0 && activeSeenSessions.size === 0 && pollTimer) {
+					clearInterval(pollTimer);
+					pollTimer = null;
+				}
+				return message.reply("🔴 Live Stock updates disabled!");
+			}
 
-		return message.reply("❌ Mga command sa Stock:\n!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert");
+			if (action === "now" || action === "") {
+				const latestMsg = await updateChannelData(false);
+				if (!latestMsg) return message.reply("❌ Could not fetch data from Telegram!");
+				
+				await sendStockGroupUpdate(api, threadID, latestMsg, event.participantIDs || []);
+				return;
+			}
+
+			return message.reply("❌ Commands:\n!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert");
+		}
 	}
 };
 
@@ -213,7 +220,7 @@ async function fetchChannelHistory(pages = 1) {
 					.replace(/`Copyright[\s\S]*?`/g, '')
 					.replace(/@\w+/g, '')
 					.replace(/&nbsp;/gi, ' ')
-					.replace(/&gt;/gi, '>') // Perfect for reading the `>` icon from Telegram
+					.replace(/&gt;/gi, '>')
 					.replace(/&lt;/gi, '<')
 					.replace(/&#39;/gi, "'")
 					.replace(/&#34;/gi, '"')
@@ -247,7 +254,8 @@ async function fetchChannelHistory(pages = 1) {
 }
 
 async function updateChannelData(isInit = false) {
-	const pagesToFetch = isInit ? 25 : 1; 
+	// Deep Readback: 500 pages (~10,000 messages) para kayang ma-cover ang buong nakalipas na taon
+	const pagesToFetch = isInit ? 500 : 1; 
 	const messages = await fetchChannelHistory(pagesToFetch);
 	if (!messages || messages.length === 0) return null;
 
@@ -307,31 +315,12 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 		else if (currentCategory) {
 			let itemName = "";
 			
-			if (currentCategory === 'Moon & Weather 🌙') {
-				for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
-					const normalizedLine = line.toLowerCase().replace(/[\s-]/g, '');
-					const normalizedKnown = knownItem.toLowerCase().replace(/[\s-]/g, '');
-					if (normalizedLine.includes(normalizedKnown)) {
-						itemName = knownItem;
-						break;
-					}
-				}
-			} else {
-				if (line.includes(':')) {
-					const rawName = line.split(':')[0].replace(/^[^a-zA-Z0-9]+/, '').trim();
-					for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
-						if (rawName.toLowerCase() === knownItem.toLowerCase()) {
-							itemName = knownItem;
-							break;
-						}
-					}
-				} else {
-					for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
-						if (line.toLowerCase().includes(knownItem.toLowerCase())) {
-							itemName = knownItem;
-							break;
-						}
-					}
+			for (const knownItem of ALL_GAME_ITEMS[currentCategory]) {
+				const normalizedLine = line.toLowerCase().replace(/[^a-z0-9]/g, '');
+				const normalizedKnown = knownItem.toLowerCase().replace(/[^a-z0-9]/g, '');
+				if (normalizedLine.includes(normalizedKnown)) {
+					itemName = knownItem;
+					break;
 				}
 			}
 
@@ -350,37 +339,21 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 	}
 }
 
+// FORMATTED DATE: Kasama na ang YEAR (Mon DD, YYYY HH:MM AM/PM)
 function formatExactDate(ms) {
-	if (ms <= 0) return "";
+	if (ms <= 0) return "Never";
 	const d = new Date(ms);
-	return d.toLocaleString("en-US", { timeZone: TZ, month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+	return d.toLocaleString("en-US", { 
+		timeZone: TZ, 
+		month: "short", 
+		day: "numeric", 
+		year: "numeric",
+		hour: "numeric", 
+		minute: "2-digit", 
+		hour12: true 
+	}).replace(',', '');
 }
 
-function getTimeAgo(ms) {
-	if (ms <= 0) return "Never Seen";
-	
-	const min = Math.floor(ms / 60000);
-	if (min < 1) return "just now";
-	
-	const hr = Math.floor(min / 60);
-	const days = Math.floor(hr / 24);
-	const weeks = Math.floor(days / 7);
-	const months = Math.floor(days / 30);
-	const years = Math.floor(days / 365);
-	
-	if (years > 0) return `${years} year${years !== 1 ? 's' : ''} ago`;
-	if (months > 0) return `${months} month${months !== 1 ? 's' : ''} ago`;
-	if (weeks > 0) return `${weeks} week${weeks !== 1 ? 's' : ''} ago`;
-	if (days > 0) return `${days} day${days !== 1 ? 's' : ''} ago`;
-	
-	if (hr > 0) {
-		const remMin = min % 60;
-		return `${hr} hour${hr !== 1 ? 's' : ''}${remMin > 0 ? ` ${remMin} minute${remMin !== 1 ? 's' : ''}` : ''} ago`;
-	}
-	return `${min} minute${min !== 1 ? 's' : ''} ago`;
-}
-
-// ⚠️ UPGRADED GET ALERTS LOGIC based on the '>' sign in the image ⚠️
 function getAlerts(msg) {
 	if (!msg || !msg.text) return "";
 	const alerts = [];
@@ -392,24 +365,20 @@ function getAlerts(msg) {
 		const isWeatherLine = msg.type === 'weather' || upperLine.includes('MOON:') || upperLine.includes('EVENT:');
 
 		if (isWeatherLine) {
-			// Check against the static weather list from ALL_GAME_ITEMS to still allow Event warnings
 			for (const item of ALL_GAME_ITEMS["Moon & Weather 🌙"]) {
 				const normalizedTarget = item.toLowerCase().replace(/[\s-]/g, '');
 				const normalizedLine = trimmedLine.toLowerCase().replace(/[\s-]/g, '');
 
 				if (normalizedLine.includes(normalizedTarget)) {
-					alerts.push(`⚠️ Active Event/Weather: ${item}!`);
+					alerts.push(`⚠️ ACTIVE EVENT/WEATHER: ${item.toUpperCase()}!`);
 					break; 
 				}
 			}
 		} else if (trimmedLine.startsWith('>')) {
-			// This specifically detects and builds an alert if the item has a ">" indicator (e.g. Rare item alert)
 			const leftSide = trimmedLine.split(':')[0].trim();
-			
-			// Separate the ">" and Emojis from the actual Item Name
 			const nameMatch = leftSide.match(/^>\s*([^a-zA-Z0-9]*)(.*)/);
 			let emoji = '📦';
-			let itemName = leftSide.substring(1).trim(); // Default fallback
+			let itemName = leftSide.substring(1).trim();
 			
 			if (nameMatch) {
 				emoji = nameMatch[1].trim() || '📦';
@@ -419,7 +388,9 @@ function getAlerts(msg) {
 			const qtyMatch = trimmedLine.match(/:\s*x?(\d+)/i);
 			const pcs = qtyMatch ? qtyMatch[1] + "x" : "1x";
 			
-			alerts.push(`${emoji} ${pcs} ${itemName} on Stock!`);
+			// Match exact tier from Wiki map
+			let detectedTier = ITEM_TIERS[itemName] || "RARE";
+			alerts.push(`🚨 [${detectedTier.toUpperCase()} DROP]: ${emoji} ${pcs} ${itemName} IN STOCK!`);
 		}
 	}
 	
@@ -456,55 +427,46 @@ function formatRawStockMsg(msg) {
 			if (!line.includes('Copyright') && !line.startsWith('@')) out += line + '\n';
 		}
 	}
-	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
-	out = out.trim() + '\n\n⏰ ' + time;
+	const time = new Date().toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
 	
-	// Group Link is included ONLY in Stock messages
-	out += `\n\n(Join at this group to see last seen stocks!)👇\n${LAST_SEEN_GROUP_LINK}`;
-	
-	// ✅ Added Custom Copyright Footer below Gag2Stock
-	out += `\n\nCopyright ©️ Gag2 ~ Dev Xdragon`;
-	return out;
+	let formatted = "📦 GAG2 STOCK LIVE 📦\n";
+	formatted += "━━━━━━━━━━━━━━━━━━━━\n\n";
+	formatted += out.trim();
+	formatted += `\n\n⏰ Date & time: ${time}`;
+	formatted += `\n\n🌐 Join here to join at gag2 last seen group!\n${LAST_SEEN_GROUP_LINK}`;
+	formatted += `\n\nCopyright ©️ Gag2 ~ Dev Xdragon`;
+	return formatted;
 }
 
 function buildLastSeenMessage() {
-	let out = "🟢 LIVE STOCK & LAST SEEN 🟢\n";
-	
+	let out = "📊 GAG2 LAST SEEN TRACKER 📊\n━━━━━━━━━━━━━━━━━━━━\n";
+
 	for (const [category, itemsList] of Object.entries(ALL_GAME_ITEMS)) {
-		out += `\n【 ${category} 】\n\n`;
+		out += `\n[ ${category} ]\n`;
 		
 		for (const itemName of itemsList) {
 			const timestamp = lastSeenDB[category]?.[itemName] || 0;
 			
 			if (currentStockItems.has(itemName)) {
-				if (category === "Moon & Weather 🌙") {
-					out += `✅ ${itemName}: Active\n\n`; 
-				} else {
-					out += `✅ ${itemName}: On Stock\n\n`; 
-				}
+				out += `🟢 ${itemName}: NOW\n`; 
 			} else if (timestamp === 0) {
-				out += `❌ ${itemName}: Never Seen\n\n`; 
+				out += `❌ ${itemName}: Never\n`; 
 			} else {
-				const exactDateText = formatExactDate(timestamp);
-				out += `🕒 ${itemName}: ${getTimeAgo(Date.now() - timestamp)} (${exactDateText})\n\n`; 
+				const exact = formatExactDate(timestamp);
+				out += `🕒 ${itemName}: ${exact}\n`; 
 			}
 		}
 	}
-	
-	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
-	out += `⏰ Last Updated: ${time}`;
-	
-	// ✅ Added Custom Copyright Footer below Gag2seen
-	out += `\n\nCopyright ©️ Gag2 ~ Dev Xdragon`;
+
+	const time = new Date().toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+	out += `\n━━━━━━━━━━━━━━━━━━━━\n⏰ Date & time: ${time}\nCopyright ©️ Gag2 ~ Dev Xdragon`;
 	return out.trim();
 }
 
-// Pure text delivery for Last Seen (Walang QR Attachment)
 async function sendLastSeenMessage(api, threadID) {
 	await api.sendMessage(buildLastSeenMessage(), threadID);
 }
 
-// Stock Delivery (Kasamang isesend ang QR Attachment kung may nai-insert na QR)
 async function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
 	let msgBody = "";
 	let hasAlerts = false;
@@ -539,7 +501,7 @@ async function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
 
 function startPolling(api) {
 	if (pollTimer) return;
-	console.log("[TGStock] Started polling for synchronized updates...");
+	console.log("[TGStock] Started polling for updates...");
 
 	pollTimer = setInterval(async () => {
 		const msg = await updateChannelData(false); 
