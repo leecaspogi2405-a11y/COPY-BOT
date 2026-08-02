@@ -1,4 +1,4 @@
-Const axios = require('axios');
+const axios = require('axios');
 
 let LAST_SEEN_GROUP_LINK = "https://m.me/j/AbbDHWUmwMTwYDLt/?send_source=gc%3Acopy_invite_link_c";
 let currentQrImageUrl = null; // Dito mai-save ang QR code image URL galing sa !qr insert
