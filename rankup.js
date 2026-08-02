@@ -88,12 +88,12 @@ async function setUserCoins(userID, usersData, coins) {
 module.exports = {
   config: {
     name: "rankup",
-    aliases: ["xdrg", "raffle", "balance", "wallet", "rank"],
-    version: "2.4.0",
+    aliases: ["xdrgrank"],
+    version: "2.5.0",
     author: "Xdrg trade service",
     description: "Rank and level system with XDRG coins and raffle giveaways",
     category: "system",
-    usage: "~rankup balance [@mention/all] | ~rankup raffle join | !rankup raffle create <item> <coins>",
+    usage: "~rankup balance [@mention/all] | !rank @mention [ranking] [level] | !rankup raffle create <item> <coins>",
     role: 0,
     usePrefix: false
   },
@@ -110,6 +110,95 @@ module.exports = {
     if (tokens.length === 0 || !tokens[0]) return;
 
     const mainTrigger = tokens[0].toLowerCase();
+    const mentionIDs = Object.keys(mentions || {});
+
+    // ADMIN MANUAL RANK TRIGGER: !rank @mention [ranking] [level]
+    if (prefix === "!" && mentionIDs.length > 0 && ["rank", "rankup", "xdrg"].includes(mainTrigger)) {
+      const sub = (tokens[1] || "").toLowerCase();
+      if (!["balance", "coins", "wallet", "profile", "raffle", "giveaway"].includes(sub)) {
+        if (role < 1) {
+          return api.sendMessage("❌ Admin access required to manually trigger rankup!", threadID, messageID);
+        }
+
+        const targetID = mentionIDs[0];
+        const rawArgs = tokens.slice(1).filter(t => !t.startsWith("@"));
+
+        let levelNum = null;
+        for (let i = rawArgs.length - 1; i >= 0; i--) {
+          const num = parseInt(rawArgs[i]);
+          if (!isNaN(num) && num > 0) {
+            levelNum = num;
+            rawArgs.splice(i, 1);
+            break;
+          }
+        }
+
+        if (levelNum === null) {
+          return api.sendMessage(
+            "❌ Invalid format!\nSyntax: !rank @mention [ranking] <level_number>\nExample: !rank @Juan Master 10",
+            threadID,
+            messageID
+          );
+        }
+
+        const customRank = rawArgs.join(" ").trim() || getRank(levelNum);
+        const newExp = Math.ceil(2.5 * levelNum * (levelNum - 1));
+
+        await usersData.set(targetID, newExp, "data.exp");
+
+        const userName = (await usersData.getName(targetID)) || "User";
+        const newNickname = `${userName} ${customRank} ${levelNum}`;
+
+        try {
+          if (typeof api.changeNickname === "function") {
+            api.changeNickname(newNickname, threadID, targetID, () => {});
+          }
+        } catch (err) {
+          console.error("[RANKUP] Nickname update failed:", err.message);
+        }
+
+        const totalCoins = await getUserCoins(targetID, usersData);
+
+        const levelUpMsg =
+          `🎉 LEVEL UP! 🎉\n\n` +
+          `👤 ${userName}\n` +
+          `🏆 RANK: ${customRank}\n` +
+          `🎖️ NEW LEVEL: ${levelNum}\n` +
+          `⭐ EXP: ${newExp}\n` +
+          `💰 Total Coins: ${totalCoins} XDRG Coins\n\n` +
+          `🌟 Updated by Admin!`;
+
+        const form = {
+          body: levelUpMsg,
+          mentions: [{ tag: userName, id: targetID }],
+        };
+
+        try {
+          const imagePath = path.join(
+            __dirname,
+            "../cmds/",
+            `rankup_${targetID}_${Date.now()}.gif`
+          );
+          const response = await axios({
+            method: "get",
+            url: `https://rankup-api-b1rv.vercel.app/api/rankup?uid=${targetID}`,
+            responseType: "stream",
+            timeout: 15000,
+          });
+          const writer = fs.createWriteStream(imagePath);
+          response.data.pipe(writer);
+          await new Promise((resolve) => {
+            writer.on("finish", resolve);
+          });
+          form.attachment = fs.createReadStream(imagePath);
+          await api.sendMessage(form, threadID, messageID);
+          fs.unlink(imagePath).catch(() => {});
+        } catch (e) {
+          await api.sendMessage(form, threadID, messageID);
+        }
+        return;
+      }
+    }
 
     let subCommand = "";
     let action = "";
@@ -131,6 +220,7 @@ module.exports = {
         if (role < 1) return;
         return api.sendMessage(
           `👑 ADMIN RANKUP & RAFFLE COMMANDS 👑\n\n` +
+          `• !rank @mention [ranking] [level] - Set user rank & level manually\n` +
           `• !rankup [on/off] - Toggle level notifications\n` +
           `• !rankup raffle create <item> <coins> - Start giveaway\n` +
           `• !rankup raffle end - Draw 1 winner`,
@@ -208,7 +298,6 @@ module.exports = {
         }
       }
 
-      const mentionIDs = Object.keys(mentions || {});
       if (mentionIDs.length > 0) {
         let mentionMsg = `💳 XDRG MEMBER PROFILE 💳\n\n`;
         for (const uid of mentionIDs) {
@@ -226,7 +315,7 @@ module.exports = {
       const userData = await usersData.get(senderID);
       const totalCoins = await getUserCoins(senderID, usersData);
       const totalExp = userData?.data?.exp || userData?.exp || 0;
-      const level = expToLevel(totalExp);
+      const level = expToLevel(senderID);
       const rank = getRank(level);
       const userName = (await usersData.getName(senderID)) || "User";
 
