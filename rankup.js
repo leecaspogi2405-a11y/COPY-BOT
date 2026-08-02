@@ -4,6 +4,20 @@ const path = require("path");
 
 const TZ = "Asia/Manila";
 
+// Helper function to get current rank based on level
+function getRank(level) {
+  if (level >= 13) return "Grand Master";
+  if (level >= 9) return "Master";
+  if (level >= 6) return "Elite";
+  if (level >= 4) return "Veteran";
+  return "Rookie";
+}
+
+// Calculate level from EXP
+function expToLevel(exp) {
+  return Math.floor((1 + Math.sqrt(1 + (8 * exp) / 5)) / 2);
+}
+
 function getFormattedDateTime() {
   const now = new Date();
   const time = now.toLocaleTimeString("en-US", {
@@ -74,10 +88,10 @@ async function setUserCoins(userID, usersData, coins) {
 module.exports = {
   config: {
     name: "rankup",
-    aliases: ["xdrg", "raffle", "balance", "wallet"],
-    version: "2.3.0",
+    aliases: ["xdrg", "raffle", "balance", "wallet", "rank"],
+    version: "2.4.0",
     author: "Xdrg trade service",
-    description: "Level up system with XDRG coins and raffle giveaway system",
+    description: "Rank and level system with XDRG coins and raffle giveaways",
     category: "system",
     usage: "~rankup balance [@mention/all] | ~rankup raffle join | !rankup raffle create <item> <coins>",
     role: 0,
@@ -101,7 +115,7 @@ module.exports = {
     let action = "";
     let commandArgs = [];
 
-    if (["rankup", "xdrg"].includes(mainTrigger)) {
+    if (["rankup", "xdrg", "rank"].includes(mainTrigger)) {
       subCommand = (tokens[1] || "").toLowerCase();
       action = (tokens[2] || "").toLowerCase();
       commandArgs = tokens.slice(3);
@@ -125,13 +139,19 @@ module.exports = {
         );
       } else {
         return api.sendMessage(
-          `📊 XDRG RANKUP & RAFFLE SYSTEM 📊\n\n` +
+          `📊 XDRG RANK & RAFFLE SYSTEM 📊\n\n` +
+          `🏆 Ranks:\n` +
+          `• Rookie (Lv. 1-3)\n` +
+          `• Veteran (Lv. 4-5)\n` +
+          `• Elite (Lv. 6-8)\n` +
+          `• Master (Lv. 9-12)\n` +
+          `• Grand Master (Lv. 13+)\n\n` +
           `💡 Member Commands:\n` +
-          `• ~rankup balance - Check your balance\n` +
+          `• ~rankup balance - Check your profile & balance\n` +
           `• ~rankup balance @mention - Check mentioned user balance\n` +
-          `• ~rankup balance all - Check all members balance\n` +
+          `• ~rankup balance all - Leaderboard of member balances\n` +
           `• ~rankup raffle join - Enter active raffle\n` +
-          `• ~rankup raffle status - View active raffle`,
+          `• ~rankup raffle status - View active raffle details`,
           threadID,
           messageID
         );
@@ -150,8 +170,8 @@ module.exports = {
       );
     }
 
-    // Balance / Wallet commands
-    if (["coins", "balance", "wallet"].includes(subCommand)) {
+    // Balance / Wallet / Rank commands
+    if (["coins", "balance", "wallet", "profile"].includes(subCommand)) {
       const targetArg = action;
 
       if (targetArg === "all") {
@@ -162,37 +182,43 @@ module.exports = {
 
           for (const uid of participantIDs) {
             const coins = await getUserCoins(uid, usersData);
-            if (coins > 0) {
+            const uData = await usersData.get(uid);
+            const totalExp = uData?.data?.exp || uData?.exp || 0;
+            const level = expToLevel(totalExp);
+            const rank = getRank(level);
+            if (coins > 0 || totalExp > 0) {
               const uName = (await usersData.getName(uid)) || "User";
-              balances.push({ name: uName, coins });
+              balances.push({ name: uName, coins, level, rank });
             }
           }
 
           balances.sort((a, b) => b.coins - a.coins);
 
-          let listMsg = `💳 ALL MEMBERS XDRG BALANCES 💳\n\n`;
+          let listMsg = `💳 ALL MEMBERS XDRG LEADERBOARD 💳\n\n`;
           if (balances.length === 0) {
-            listMsg += `No members currently have XDRG coins. Keep chatting to earn!`;
+            listMsg += `No members currently have XDRG activity. Keep chatting to earn!`;
           } else {
             balances.forEach((item, index) => {
-              listMsg += `${index + 1}. ${item.name}: ${item.coins} XDRG Coins\n`;
+              listMsg += `${index + 1}. ${item.name} | [${item.rank} Lv.${item.level}] - ${item.coins} Coins\n`;
             });
           }
           return api.sendMessage(listMsg.trim(), threadID, messageID);
         } catch (e) {
-          return api.sendMessage("❌ Failed to retrieve thread member balances.", threadID, messageID);
+          return api.sendMessage("❌ Failed to retrieve member balances.", threadID, messageID);
         }
       }
 
       const mentionIDs = Object.keys(mentions || {});
       if (mentionIDs.length > 0) {
-        let mentionMsg = `💳 XDRG WALLET BALANCE 💳\n\n`;
+        let mentionMsg = `💳 XDRG MEMBER PROFILE 💳\n\n`;
         for (const uid of mentionIDs) {
           const uData = await usersData.get(uid);
           const totalCoins = await getUserCoins(uid, usersData);
           const totalExp = uData?.data?.exp || uData?.exp || 0;
+          const level = expToLevel(totalExp);
+          const rank = getRank(level);
           const userName = mentions[uid].replace(/^@/, "");
-          mentionMsg += `👤 User: ${userName}\n⭐ EXP: ${totalExp}\n💰 XDRG Coins: ${totalCoins}\n\n`;
+          mentionMsg += `👤 User: ${userName}\n🏆 Rank: ${rank}\n🎖️ Level: ${level}\n⭐ EXP: ${totalExp}\n💰 XDRG Coins: ${totalCoins}\n\n`;
         }
         return api.sendMessage(mentionMsg.trim(), threadID, messageID);
       }
@@ -200,11 +226,15 @@ module.exports = {
       const userData = await usersData.get(senderID);
       const totalCoins = await getUserCoins(senderID, usersData);
       const totalExp = userData?.data?.exp || userData?.exp || 0;
+      const level = expToLevel(totalExp);
+      const rank = getRank(level);
       const userName = (await usersData.getName(senderID)) || "User";
 
       return api.sendMessage(
-        `💳 XDRG WALLET 💳\n\n` +
+        `💳 XDRG MEMBER WALLET 💳\n\n` +
         `👤 User: ${userName}\n` +
+        `🏆 Rank: ${rank}\n` +
+        `🎖️ Level: ${level}\n` +
         `⭐ Total EXP: ${totalExp}\n` +
         `💰 XDRG Coins: ${totalCoins}`,
         threadID,
@@ -219,7 +249,7 @@ module.exports = {
         if (prefix !== "!" || role < 1) return;
 
         if (commandArgs.length < 2) {
-          return api.sendMessage("❌ Syntax: !rankup raffle create <item> <coin needed>", threadID, messageID);
+          return api.sendMessage("❌ Syntax: !rankup raffle create <item> <coins required>", threadID, messageID);
         }
 
         const coinNeeded = parseInt(commandArgs[commandArgs.length - 1]);
@@ -292,13 +322,14 @@ module.exports = {
         const { time, date } = getFormattedDateTime();
 
         const joinMessage =
-          `Gag2 raffle made by XDRG TRADE SERVICE \n\n` +
-          `Name:${userName}\n` +
-          `Item:${activeRaffle.item}\n` +
-          `Time:${time}\n` +
-          `Date:${date}\n\n` +
+          `🎟️ OFFICIAL RAFFLE TICKET 🎟️\n` +
+          `Brought to you by XDRG TRADE SERVICE\n\n` +
+          `👤 Name: ${userName}\n` +
+          `🎁 Item: ${activeRaffle.item}\n` +
+          `⏰ Time: ${time}\n` +
+          `📅 Date: ${date}\n\n` +
           `------------------------------------------\n` +
-          `Reminder:Copying this message is belong to copyright ©️ if you copy this message Xdrg team/XDRG TRADE SERVICE add your name to xdrg report list`;
+          `Notice: This ticket was generated by XDRG Trade Service. Unauthorized duplication is prohibited.`;
 
         return api.sendMessage(joinMessage, threadID, messageID);
       }
@@ -381,9 +412,6 @@ module.exports = {
 
       await usersData.set(senderID, exp, "data.exp");
 
-      const expToLevel = (e) =>
-        Math.floor((1 + Math.sqrt(1 + (8 * e) / 5)) / 2);
-
       const prevLevel = expToLevel(prevExp);
       const currentLevel = expToLevel(exp);
 
@@ -392,14 +420,26 @@ module.exports = {
         await setUserCoins(senderID, usersData, totalCoins);
 
         const name = (await usersData.getName(senderID)) || "User";
+        const rank = getRank(currentLevel);
+
+        // Update User Nickname to format: {Name} {Rank} {Level}
+        const newNickname = `${name} ${rank} ${currentLevel}`;
+        try {
+          if (typeof api.changeNickname === "function") {
+            api.changeNickname(newNickname, threadID, senderID, () => {});
+          }
+        } catch (err) {
+          console.error("[RANKUP] Nickname update failed:", err.message);
+        }
 
         const levelUpMsg =
           `🎉 LEVEL UP! 🎉\n\n` +
           `👤 ${name}\n` +
+          `🏆 RANK: ${rank}\n` +
           `🎖️ NEW LEVEL: ${currentLevel}\n` +
           `⭐ EXP: ${exp}\n` +
-          `💰 +5 coins XDRG! (Total: ${totalCoins})\n\n` +
-          `🌟 Keep chatting to level up more!`;
+          `💰 +5 XDRG Coins! (Total: ${totalCoins})\n\n` +
+          `🌟 Keep chatting to advance your rank!`;
 
         const form = {
           body: levelUpMsg,
