@@ -18,6 +18,7 @@ const ALLOWED_ITEMS = [
   "fox", "fx",
   "raccon", "rcn",
   "dragon fly", "df",
+  "dragon breath", "db",
   "firefly", "ff",
   "syrup super watering can", "sswc",
   "syrup super sprinkler", "sss",
@@ -32,6 +33,11 @@ const imgMoonBloom = "https://cdn.discordapp.com/attachments/1514595928928026775
 const imgHypnoBloom = "https://cdn.discordapp.com/attachments/1514595928928026775/1533989998884425879/orca-image--520245196.jpeg.jpg?ex=6a727f03&is=6a712d83&hm=e9270db262d43be1cebfc786172813d0e9ae88fbe59f0c1e09a2d5070389625d&";
 const imgFirefly = "https://cdn.discordapp.com/attachments/1514595928928026775/1533989965095243817/orca-image--1206304639.jpeg.jpg?ex=6a727efb&is=6a712d7b&hm=cba7e561ae0f6957e6f66a3cccda203ad8e830a58ce84d6de981add26ff09c4a&";
 
+// --- NEW IMAGES ---
+const imgUnicorn = "https://cdn.discordapp.com/attachments/1514595928928026775/1534027548923789362/orca-image--2091653975.jpeg.jpg?ex=6a72a1fc&is=6a71507c&hm=a431b24f37a7b29739376866b11a91c5d13f9508ed5507fd52f6b7b2e76987da&";
+const imgDragonBreath = "https://cdn.discordapp.com/attachments/1514595928928026775/1534027852217847818/orca-image-1049189034.jpeg.jpg?ex=6a72a244&is=6a7150c4&hm=b95d38a32492eeb094c7da7dc94eca698f4cae1f60880b679cd009b855704f12&";
+const imgSunBloom = "https://cdn.discordapp.com/attachments/1514595928928026775/1534027867879374898/orca-image-1203346253.jpeg.jpg?ex=6a72a248&is=6a7150c8&hm=075075445fe03c3235e15dacac63b27f03cf8df9dc7ce79711b70afde028d998&";
+
 const ITEM_IMAGES = {
   "swan": imgSwan, "sn": imgSwan,
   "star fruit": imgStarFruit, "sf": imgStarFruit,
@@ -39,7 +45,10 @@ const ITEM_IMAGES = {
   "turkey": imgTurkey, "tk": imgTurkey,
   "moon bloom": imgMoonBloom, "mb": imgMoonBloom, "moon mloom": imgMoonBloom,
   "hypno bloom": imgHypnoBloom, "hb": imgHypnoBloom,
-  "firefly": imgFirefly, "ff": imgFirefly
+  "firefly": imgFirefly, "ff": imgFirefly,
+  "unicorn": imgUnicorn, "unc": imgUnicorn,
+  "dragon breath": imgDragonBreath, "db": imgDragonBreath,
+  "sun bloom": imgSunBloom, "sb": imgSunBloom
 };
 
 function parseTime(timeStr) {
