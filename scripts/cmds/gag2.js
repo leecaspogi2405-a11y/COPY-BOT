@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 let LAST_SEEN_GROUP_LINK = "https://m.me/j/AbbDHWUmwMTwYDLt/?send_source=gc%3Acopy_invite_link_c";
-let currentQrImageUrl = null; // Dito mai-save ang QR code image URL galing sa !qr insert
+let currentQrImageUrl = null; // Save QR code image URL from !qr insert
 
 const TELEGRAM_CHANNEL = "growagardenlivestock";
 const TZ = "Asia/Manila";
@@ -51,12 +51,12 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "9.2",
+		version: "9.3",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Unified stock, synchronized last seen tracker, and dynamic QR insert with dynamic target alerts",
 		category: "stock",
-		guide: "!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert (i-reply sa image o link)"
+		guide: "!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert (reply to image or link)"
 	},
 
 	onStart: async ({ message, event, args, api }) => {
@@ -76,14 +76,13 @@ module.exports = {
 		if (cmdUsed === "qr") {
 			if (action === "insert") {
 				if (!event.messageReply) {
-					return message.reply("❌ Paano gamitin:\n1. Mag-send ng QR image o link sa chat.\n2. I-reply ang '!qr insert' sa message na iyon.");
+					return message.reply("❌ How to use:\n1. Send a QR image or link in chat.\n2. Reply '!qr insert' to that message.");
 				}
 
 				const reply = event.messageReply;
 				let isUpdated = false;
 				let statusMsg = "✅ **QR Insert Update Success!**\n\n";
 
-				// Check if reply has attachment (Image/QR)
 				if (reply.attachments && reply.attachments.length > 0) {
 					const imgAtt = reply.attachments.find(a => a.type === 'photo' || a.type === 'image' || a.url);
 					if (imgAtt) {
@@ -93,7 +92,6 @@ module.exports = {
 					}
 				}
 
-				// Check if reply has text/link
 				if (reply.body) {
 					const urlMatch = reply.body.match(/https?:\/\/[^\s]+/i);
 					if (urlMatch) {
@@ -104,7 +102,7 @@ module.exports = {
 				}
 
 				if (!isUpdated) {
-					return message.reply("❌ Walang nahanap na valid na image attachment o URL link sa nireplyan mong message!");
+					return message.reply("❌ No valid image attachment or URL link found in the replied message!");
 				}
 
 				let payload = { body: statusMsg.trim() };
@@ -118,11 +116,11 @@ module.exports = {
 				return api.sendMessage(payload, threadID);
 			}
 
-			return message.reply("❌ Gamitin ang: !qr insert (i-reply sa image o link)");
+			return message.reply("❌ Usage: !qr insert (reply to image or link)");
 		}
 
 		// ==========================================
-		// 2. COMMAND: !gag2seen (Text-Only, Walang QR / Link)
+		// 2. COMMAND: !gag2seen (Text-Only, No QR / Link)
 		// ==========================================
 		if (cmdUsed === "gag2seen") {
 			if (action === "on") {
@@ -145,11 +143,11 @@ module.exports = {
 				return sendLastSeenMessage(api, threadID);
 			}
 
-			return message.reply("❌ Mga command sa Last Seen:\n!gag2seen on\n!gag2seen off\n!gag2seen now");
+			return message.reply("❌ Available Last Seen commands:\n!gag2seen on\n!gag2seen off\n!gag2seen now");
 		}
 
 		// ==========================================
-		// 3. COMMAND: !gag2stock (May QR Image at Link)
+		// 3. COMMAND: !gag2stock (With QR Image and Link)
 		// ==========================================
 		if (action === "on") {
 			activeStockSessions.set(threadID, { enabled: true, participantIDs: event.participantIDs || [] });
@@ -174,7 +172,7 @@ module.exports = {
 			return;
 		}
 
-		return message.reply("❌ Mga command sa Stock:\n!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert");
+		return message.reply("❌ Available Stock commands:\n!gag2stock on/off/now\n!gag2seen on/off/now\n!qr insert");
 	}
 };
 
@@ -213,7 +211,7 @@ async function fetchChannelHistory(pages = 1) {
 					.replace(/`Copyright[\s\S]*?`/g, '')
 					.replace(/@\w+/g, '')
 					.replace(/&nbsp;/gi, ' ')
-					.replace(/&gt;/gi, '>') // Perfect for reading the `>` icon from Telegram
+					.replace(/&gt;/gi, '>')
 					.replace(/&lt;/gi, '<')
 					.replace(/&#39;/gi, "'")
 					.replace(/&#34;/gi, '"')
@@ -380,7 +378,6 @@ function getTimeAgo(ms) {
 	return `${min} minute${min !== 1 ? 's' : ''} ago`;
 }
 
-// ⚠️ UPGRADED GET ALERTS LOGIC based on the '>' sign in the image ⚠️
 function getAlerts(msg) {
 	if (!msg || !msg.text) return "";
 	const alerts = [];
@@ -392,7 +389,6 @@ function getAlerts(msg) {
 		const isWeatherLine = msg.type === 'weather' || upperLine.includes('MOON:') || upperLine.includes('EVENT:');
 
 		if (isWeatherLine) {
-			// Check against the static weather list from ALL_GAME_ITEMS to still allow Event warnings
 			for (const item of ALL_GAME_ITEMS["Moon & Weather 🌙"]) {
 				const normalizedTarget = item.toLowerCase().replace(/[\s-]/g, '');
 				const normalizedLine = trimmedLine.toLowerCase().replace(/[\s-]/g, '');
@@ -403,13 +399,10 @@ function getAlerts(msg) {
 				}
 			}
 		} else if (trimmedLine.startsWith('>')) {
-			// This specifically detects and builds an alert if the item has a ">" indicator (e.g. Rare item alert)
 			const leftSide = trimmedLine.split(':')[0].trim();
-			
-			// Separate the ">" and Emojis from the actual Item Name
 			const nameMatch = leftSide.match(/^>\s*([^a-zA-Z0-9]*)(.*)/);
 			let emoji = '📦';
-			let itemName = leftSide.substring(1).trim(); // Default fallback
+			let itemName = leftSide.substring(1).trim();
 			
 			if (nameMatch) {
 				emoji = nameMatch[1].trim() || '📦';
@@ -459,10 +452,9 @@ function formatRawStockMsg(msg) {
 	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
 	out = out.trim() + '\n\n⏰ ' + time;
 	
-	// Group Link is included ONLY in Stock messages
 	out += `\n\n(Join at this group to see last seen stocks!)👇\n${LAST_SEEN_GROUP_LINK}`;
+	out += `\n\nTo get better performance go at this discord link instead👇\nhttps://discord.gg/fDYasnEPh`;
 	
-	// ✅ Added Custom Copyright Footer below Gag2Stock
 	out += `\n\nCopyright ©️ Gag2 ~ Dev Xdragon`;
 	return out;
 }
@@ -494,17 +486,16 @@ function buildLastSeenMessage() {
 	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
 	out += `⏰ Last Updated: ${time}`;
 	
-	// ✅ Added Custom Copyright Footer below Gag2seen
+	out += `\n\nTo get better performance go at this discord link instead👇\nhttps://discord.gg/fDYasnEPh`;
+
 	out += `\n\nCopyright ©️ Gag2 ~ Dev Xdragon`;
 	return out.trim();
 }
 
-// Pure text delivery for Last Seen (Walang QR Attachment)
 async function sendLastSeenMessage(api, threadID) {
 	await api.sendMessage(buildLastSeenMessage(), threadID);
 }
 
-// Stock Delivery (Kasamang isesend ang QR Attachment kung may nai-insert na QR)
 async function sendStockGroupUpdate(api, threadID, msg, participantIDs) {
 	let msgBody = "";
 	let hasAlerts = false;
