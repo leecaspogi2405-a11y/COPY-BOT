@@ -1,14 +1,16 @@
-const pendingApplications = new Map();
-const cooldowns = new Map();
-const moderatorsList = new Map();
-
-let MAX_MODERATORS = 2; // Default limit
+if (!global.modSystem) {
+    global.modSystem = {
+        maxMods: 2,
+        moderators: new Map(),
+        pending: new Map(),
+        cooldowns: new Map()
+    };
+}
 
 function getCurrentDateTime() {
     return new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
 }
 
-// Function para i-check kung Admin ang nag-command gamit ang global config ng bot
 function isBotAdmin(senderID) {
     if (global.config && Array.isArray(global.config.ADMINBOT)) {
         return global.config.ADMINBOT.includes(senderID);
@@ -16,106 +18,119 @@ function isBotAdmin(senderID) {
     return false;
 }
 
-function handleMessage(api, event) {
-    const message = event.body ? event.body.trim() : "";
-    const senderID = event.senderID;
-    const threadID = event.threadID;
+module.exports = {
+    config: {
+        name: "modsystem",
+        aliases: ["mod", "add"],
+        version: "3.0.0",
+        author: "Dev Xdragon",
+        role: 0,
+        description: "Moderator application and admin system",
+        category: "system",
+        guide: "{pn} apply\n!add mod {number}\n!mod list"
+    },
 
-    // ==========================================
-    // 1. HANDLE REPLIES (✅ or ❎)
-    // ==========================================
-    if (pendingApplications.has(senderID)) {
-        const app = pendingApplications.get(senderID);
+    onStart: async function ({ api, event, args, message }) {
+        return this.onChat({ api, event, message });
+    },
 
-        if (message === '✅') {
-            if (moderatorsList.size >= MAX_MODERATORS) {
-                api.sendMessage(`❌ Sorry, maximum number of moderators (${MAX_MODERATORS}) reached already.`, threadID);
-                pendingApplications.delete(senderID);
+    onChat: async function ({ api, event, message }) {
+        if (!event.body) return;
+        const body = event.body.trim();
+        const senderID = event.senderID;
+        const threadID = event.threadID;
+        const state = global.modSystem;
+
+        // ==========================================
+        // 1. REPLIES (✅ or ❎)
+        // ==========================================
+        if (state.pending.has(senderID)) {
+            const app = state.pending.get(senderID);
+
+            if (body === '✅') {
+                if (state.moderators.size >= state.maxMods) {
+                    message.reply(`❌ Sorry, maximum number of moderators (${state.maxMods}) reached already.`);
+                    state.pending.delete(senderID);
+                    return;
+                }
+
+                state.moderators.set(senderID, {
+                    name: app.name,
+                    robloxUser: app.robloxUser,
+                    approvedAt: app.time
+                });
+
+                const confirmMsg = `Account update [Confirmed] Congratulations you are now officially an moderator ${state.moderators.size}/${state.maxMods}\n` +
+                                   `📛Name: ${app.name}\n` +
+                                   `🪪Id: Secret\n` +
+                                   `🧾Uid: ${senderID}\n` +
+                                   `🗝️Role: Moderator\n` +
+                                   `💳Rbxl user: ${app.robloxUser}\n` +
+                                   `⏰Time & date: ${app.time}\n` +
+                                   `----------------------------------\n` +
+                                   `Made by: Xdrg Moderator Service\n` +
+                                   `Sending to: Dev Xdragon`;
+
+                message.reply(confirmMsg);
+
+                api.changeNickname(`[Moderator🔨] ${app.name}`, threadID, senderID, (err) => {
+                    if (err) console.error("Could not change nickname:", err);
+                });
+
+                state.pending.delete(senderID);
                 return;
             }
 
-            moderatorsList.set(senderID, {
-                name: app.name,
-                robloxUser: app.robloxUser,
-                approvedAt: app.time
-            });
+            if (body === '❎') {
+                state.cooldowns.set(senderID, Date.now() + 300000);
 
-            const currentCount = moderatorsList.size;
-            const confirmMsg = `Account update [Confirmed] Congratulations you are now officially an moderator ${currentCount}/${MAX_MODERATORS}\n` +
-                               `📛Name: ${app.name}\n` +
-                               `🪪Id: Secret\n` +
-                               `🧾Uid: ${senderID}\n` +
-                               `🗝️Role: Moderator\n` +
-                               `💳Rbxl user: ${app.robloxUser}\n` +
-                               `⏰Time & date: ${app.time}\n` +
-                               `----------------------------------\n` +
-                               `Made by: Xdrg Moderator Service\n` +
-                               `Sending to: Dev Xdragon`;
+                const rejectMsg = `${app.name} try again in 5 minutes to cooldown the system/xdrg service system try type again👇\n` +
+                                  `------------------------------\n` +
+                                  `~mod apply\n` +
+                                  `Name:${app.name}\n` +
+                                  `Id:Secret\n` +
+                                  `Roblox username:${app.robloxUser}`;
 
-            api.sendMessage(confirmMsg, threadID);
-
-            const newNickname = `[Moderator🔨] ${app.name}`;
-            api.changeNickname(newNickname, threadID, senderID, (err) => {
-                if (err) console.error("Could not change nickname:", err);
-            });
-
-            pendingApplications.delete(senderID);
-            return;
-        } 
-        
-        else if (message === '❎') {
-            cooldowns.set(senderID, Date.now() + 300000); // 5 minutes cooldown
-
-            const rejectMsg = `${app.name} try again in 5 minutes to cooldown the system/xdrg service system try type again👇\n` +
-                              `------------------------------\n` +
-                              `~mod apply\n` +
-                              `Name:${app.name}\n` +
-                              `Id:Secret\n` +
-                              `Roblox username:${app.robloxUser}`;
-
-            api.sendMessage(rejectMsg, threadID);
-            pendingApplications.delete(senderID);
-            return;
+                message.reply(rejectMsg);
+                state.pending.delete(senderID);
+                return;
+            }
         }
-    }
 
-    // ==========================================
-    // 2. ADMIN COMMANDS (Prefix: !)
-    // ==========================================
-    if (message.startsWith('!')) {
-        const isAdmin = isBotAdmin(senderID);
+        const lowerBody = body.toLowerCase();
 
-        // Command: !add mod {number}
-        if (message.toLowerCase().startsWith('!add mod')) {
-            if (!isAdmin) {
-                return api.sendMessage("❌ Only Bot Admins can use this command.", threadID);
+        // ==========================================
+        // 2. ADMIN COMMANDS (! Prefix or Direct)
+        // ==========================================
+        if (lowerBody.startsWith('!add mod') || lowerBody.startsWith('add mod')) {
+            if (!isBotAdmin(senderID)) {
+                return message.reply("❌ Only Bot Admins can use this command.");
             }
 
-            const args = message.split(/\s+/);
-            const newLimit = parseInt(args[2]);
+            const parts = body.split(/\s+/);
+            const newLimit = parseInt(parts[2] || parts[3]);
 
             if (isNaN(newLimit) || newLimit < 1) {
-                return api.sendMessage("❌ Usage: !add mod {number} (e.g., !add mod 5)", threadID);
+                return message.reply("❌ Usage: !add mod {number} (e.g., !add mod 5)");
             }
 
-            MAX_MODERATORS = newLimit;
-            return api.sendMessage(`✅ **System Update:** Required moderator limit adjusted to **${MAX_MODERATORS}**.`, threadID);
+            state.maxMods = newLimit;
+            return message.reply(`✅ **System Update:** Required moderator limit adjusted to **${state.maxMods}**.`);
         }
 
-        // Command: !mod list
-        if (message.toLowerCase() === '!mod list') {
-            if (!isAdmin) {
-                return api.sendMessage("❌ Only Bot Admins can view the moderator list.", threadID);
+        if (lowerBody === '!mod list' || lowerBody === 'mod list' || lowerBody === '!modsystem list') {
+            if (!isBotAdmin(senderID)) {
+                return message.reply("❌ Only Bot Admins can view the moderator list.");
             }
 
-            if (moderatorsList.size === 0) {
-                return api.sendMessage(`🛡️ **Moderator List** (0/${MAX_MODERATORS}):\nNo active moderators registered yet.`, threadID);
+            if (state.moderators.size === 0) {
+                return message.reply(`🛡️ **Moderator List** (0/${state.maxMods}):\nNo active moderators registered yet.`);
             }
 
-            let listMsg = `🛡️ **ACTIVE MODERATORS** (${moderatorsList.size}/${MAX_MODERATORS})\n----------------------------------\n`;
+            let listMsg = `🛡️ **ACTIVE MODERATORS** (${state.moderators.size}/${state.maxMods})\n----------------------------------\n`;
             let index = 1;
 
-            moderatorsList.forEach((mod, uid) => {
+            state.moderators.forEach((mod, uid) => {
                 listMsg += `${index}. 📛 Name: ${mod.name}\n` +
                            `   💳 Roblox: ${mod.robloxUser}\n` +
                            `   🧾 UID: ${uid}\n` +
@@ -123,17 +138,13 @@ function handleMessage(api, event) {
                 index++;
             });
 
-            return api.sendMessage(listMsg.trim(), threadID);
+            return message.reply(listMsg.trim());
         }
-    }
 
-    // ==========================================
-    // 3. USER COMMANDS (Prefix: ~)
-    // ==========================================
-    if (message.startsWith('~')) {
-
-        // Command: ~mod tutorial
-        if (message.toLowerCase() === '~mod tutorial') {
+        // ==========================================
+        // 3. USER COMMANDS (~ or ! Prefix)
+        // ==========================================
+        if (lowerBody === '~mod tutorial' || lowerBody === '!mod tutorial') {
             const tutorialMsg = `📖 **MODERATOR APPLICATION TUTORIAL**\n` +
                                 `----------------------------------\n` +
                                 `To apply for Moderator, send this exact format:\n\n` +
@@ -149,30 +160,29 @@ function handleMessage(api, event) {
                                 `----------------------------------\n` +
                                 `⚠️ Reply with ✅ to confirm or ❎ to cancel when prompted.`;
 
-            return api.sendMessage(tutorialMsg, threadID);
+            return message.reply(tutorialMsg);
         }
 
-        // Command: ~mod apply
-        if (message.toLowerCase().startsWith('~mod apply')) {
-            if (moderatorsList.size >= MAX_MODERATORS) {
-                return api.sendMessage(`❌ Application closed! Maximum limit of ${MAX_MODERATORS} moderators reached.`, threadID);
+        if (lowerBody.startsWith('~mod apply') || lowerBody.startsWith('!mod apply')) {
+            if (state.moderators.size >= state.maxMods) {
+                return message.reply(`❌ Application closed! Maximum limit of ${state.maxMods} moderators reached.`);
             }
 
-            if (moderatorsList.has(senderID)) {
-                return api.sendMessage("⚠️ You are already an official Moderator!", threadID);
+            if (state.moderators.has(senderID)) {
+                return message.reply("⚠️ You are already an official Moderator!");
             }
 
-            if (cooldowns.has(senderID)) {
-                const expirationTime = cooldowns.get(senderID);
+            if (state.cooldowns.has(senderID)) {
+                const expirationTime = state.cooldowns.get(senderID);
                 if (Date.now() < expirationTime) {
                     const minutesLeft = Math.ceil((expirationTime - Date.now()) / 60000);
-                    return api.sendMessage(`⏳ Please wait ${minutesLeft} minute(s) before applying again.`, threadID);
+                    return message.reply(`⏳ Please wait ${minutesLeft} minute(s) before applying again.`);
                 } else {
-                    cooldowns.delete(senderID);
+                    state.cooldowns.delete(senderID);
                 }
             }
 
-            const lines = message.split('\n');
+            const lines = body.split('\n');
             let name = "Unknown";
             let robloxUser = "Unknown";
 
@@ -186,12 +196,12 @@ function handleMessage(api, event) {
             });
 
             if (name === "Unknown" || robloxUser === "Unknown") {
-                return api.sendMessage("❌ Invalid format! Type `~mod tutorial` for instructions.", threadID);
+                return message.reply("❌ Invalid format! Type `~mod tutorial` for instructions.");
             }
 
             const timeAndDate = getCurrentDateTime();
 
-            pendingApplications.set(senderID, {
+            state.pending.set(senderID, {
                 name: name,
                 robloxUser: robloxUser,
                 time: timeAndDate
@@ -209,7 +219,7 @@ function handleMessage(api, event) {
                              `Sending to: Dev Xdragon\n\n` +
                              `Reply with ✅ to confirm or ❎ to cancel.`;
 
-            return api.sendMessage(replyMsg, threadID);
+            return message.reply(replyMsg);
         }
     }
-}
+};
