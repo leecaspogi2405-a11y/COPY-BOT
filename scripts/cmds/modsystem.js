@@ -1,225 +1,232 @@
-if (!global.modSystem) {
-    global.modSystem = {
-        maxMods: 2,
-        moderators: new Map(),
-        pending: new Map(),
-        cooldowns: new Map()
-    };
+const { config } = global.GoatBot;
+
+if (!global.modSystemData) {
+	global.modSystemData = {
+		maxMods: 2,
+		moderators: new Map(),
+		cooldowns: new Map()
+	};
 }
 
 function getCurrentDateTime() {
-    return new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
-}
-
-function isBotAdmin(senderID) {
-    if (global.config && Array.isArray(global.config.ADMINBOT)) {
-        return global.config.ADMINBOT.includes(senderID);
-    }
-    return false;
+	return new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
 }
 
 module.exports = {
-    config: {
-        name: "modsystem",
-        aliases: ["mod", "add"],
-        version: "3.0.0",
-        author: "Dev Xdragon",
-        role: 0,
-        description: "Moderator application and admin system",
-        category: "system",
-        guide: "{pn} apply\n!add mod {number}\n!mod list"
-    },
+	config: {
+		name: "modsystem",
+		aliases: ["mod"],
+		version: "4.0.0",
+		author: "Dev Xdragon",
+		role: 0,
+		description: {
+			en: "Moderator application system integrated with GoatBot admin system"
+		},
+		category: "system",
+		guide: {
+			en: "   {pn} apply\nName:{name}\nRoblox username:{user}\n   {pn} tutorial: Show tutorial\n   {pn} add <number>: Set moderator limit (Admin only)\n   {pn} list: List active moderators (Admin only)"
+		}
+	},
 
-    onStart: async function ({ api, event, args, message }) {
-        return this.onChat({ api, event, message });
-    },
+	onStart: async function ({ args, message, event, role }) {
+		const senderID = event.senderID;
+		const threadID = event.threadID;
+		const state = global.modSystemData;
+		const subCommand = (args[0] || "").toLowerCase();
 
-    onChat: async function ({ api, event, message }) {
-        if (!event.body) return;
-        const body = event.body.trim();
-        const senderID = event.senderID;
-        const threadID = event.threadID;
-        const state = global.modSystem;
+		// Check GoatBot Admin (role == 2 or listed in config.adminBot)
+		const isAdmin = role >= 2 || (config.adminBot && config.adminBot.includes(senderID));
 
-        // ==========================================
-        // 1. REPLIES (✅ or ❎)
-        // ==========================================
-        if (state.pending.has(senderID)) {
-            const app = state.pending.get(senderID);
+		// ==========================================
+		// 1. ADMIN COMMAND: !mod add <number>
+		// ==========================================
+		if (subCommand === "add" || subCommand === "limit" || subCommand === "setlimit") {
+			if (!isAdmin) {
+				return message.reply("❌ Only Bot Admins can change the moderator limit.");
+			}
+			const newLimit = parseInt(args[1]);
+			if (isNaN(newLimit) || newLimit < 1) {
+				return message.reply("❌ Usage: !mod add <number> (Example: !mod add 5)");
+			}
+			state.maxMods = newLimit;
+			return message.reply(`✅ **System Update:** Moderator limit successfully changed to **${state.maxMods}**.`);
+		}
 
-            if (body === '✅') {
-                if (state.moderators.size >= state.maxMods) {
-                    message.reply(`❌ Sorry, maximum number of moderators (${state.maxMods}) reached already.`);
-                    state.pending.delete(senderID);
-                    return;
-                }
+		// ==========================================
+		// 2. ADMIN COMMAND: !mod list
+		// ==========================================
+		if (subCommand === "list") {
+			if (!isAdmin) {
+				return message.reply("❌ Only Bot Admins can view the moderator list.");
+			}
+			if (state.moderators.size === 0) {
+				return message.reply(`🛡️ **Moderator List** (0/${state.maxMods}):\nNo active moderators registered yet.`);
+			}
+			let listMsg = `🛡️ **ACTIVE MODERATORS** (${state.moderators.size}/${state.maxMods})\n----------------------------------\n`;
+			let index = 1;
+			for (const [uid, mod] of state.moderators.entries()) {
+				listMsg += `${index}. 📛 Name: ${mod.name}\n` +
+					`   💳 Roblox: ${mod.robloxUser}\n` +
+					`   🧾 UID: ${uid}\n` +
+					`   ⏰ Joined: ${mod.approvedAt}\n\n`;
+				index++;
+			}
+			return message.reply(listMsg.trim());
+		}
 
-                state.moderators.set(senderID, {
-                    name: app.name,
-                    robloxUser: app.robloxUser,
-                    approvedAt: app.time
-                });
+		// ==========================================
+		// 3. USER COMMAND: !mod tutorial
+		// ==========================================
+		if (subCommand === "tutorial") {
+			const tutorialMsg = `📖 **MODERATOR APPLICATION TUTORIAL**\n` +
+				`----------------------------------\n` +
+				`To apply for Moderator, send this exact command format:\n\n` +
+				`!mod apply\n` +
+				`Name:{Your Name}\n` +
+				`Id:Secret\n` +
+				`Roblox username:{Your Roblox Username}\n\n` +
+				`📌 **Example:**\n` +
+				`!mod apply\n` +
+				`Name:Alex\n` +
+				`Id:Secret\n` +
+				`Roblox username:AlexPlayz123\n\n` +
+				`----------------------------------\n` +
+				`⚠️ Reply to the bot's preview message with ✅ to confirm or ❎ to cancel.`;
+			return message.reply(tutorialMsg);
+		}
 
-                const confirmMsg = `Account update [Confirmed] Congratulations you are now officially an moderator ${state.moderators.size}/${state.maxMods}\n` +
-                                   `📛Name: ${app.name}\n` +
-                                   `🪪Id: Secret\n` +
-                                   `🧾Uid: ${senderID}\n` +
-                                   `🗝️Role: Moderator\n` +
-                                   `💳Rbxl user: ${app.robloxUser}\n` +
-                                   `⏰Time & date: ${app.time}\n` +
-                                   `----------------------------------\n` +
-                                   `Made by: Xdrg Moderator Service\n` +
-                                   `Sending to: Dev Xdragon`;
+		// ==========================================
+		// 4. USER COMMAND: !mod apply
+		// ==========================================
+		if (subCommand === "apply") {
+			if (state.moderators.size >= state.maxMods) {
+				return message.reply(`❌ Application closed! Maximum limit of ${state.maxMods} moderators has been reached.`);
+			}
 
-                message.reply(confirmMsg);
+			if (state.moderators.has(senderID)) {
+				return message.reply("⚠️ You are already registered as a Moderator!");
+			}
 
-                api.changeNickname(`[Moderator🔨] ${app.name}`, threadID, senderID, (err) => {
-                    if (err) console.error("Could not change nickname:", err);
-                });
+			if (state.cooldowns.has(senderID)) {
+				const expirationTime = state.cooldowns.get(senderID);
+				if (Date.now() < expirationTime) {
+					const minutesLeft = Math.ceil((expirationTime - Date.now()) / 60000);
+					return message.reply(`⏳ Cooldown Active: Please wait ${minutesLeft} minute(s) before applying again.`);
+				} else {
+					state.cooldowns.delete(senderID);
+				}
+			}
 
-                state.pending.delete(senderID);
-                return;
-            }
+			const fullText = event.body || "";
+			const lines = fullText.split('\n');
+			let name = "Unknown";
+			let robloxUser = "Unknown";
 
-            if (body === '❎') {
-                state.cooldowns.set(senderID, Date.now() + 300000);
+			lines.forEach(line => {
+				const lower = line.toLowerCase().trim();
+				if (lower.startsWith('name:')) {
+					name = line.substring(line.indexOf(':') + 1).trim();
+				} else if (lower.startsWith('roblox username:')) {
+					robloxUser = line.substring(line.indexOf(':') + 1).trim();
+				}
+			});
 
-                const rejectMsg = `${app.name} try again in 5 minutes to cooldown the system/xdrg service system try type again👇\n` +
-                                  `------------------------------\n` +
-                                  `~mod apply\n` +
-                                  `Name:${app.name}\n` +
-                                  `Id:Secret\n` +
-                                  `Roblox username:${app.robloxUser}`;
+			if (name === "Unknown" || robloxUser === "Unknown") {
+				return message.reply("❌ Invalid application format!\n\nUse:\n!mod apply\nName:{name}\nId:Secret\nRoblox username:{Roblox username}\n\n(Type `!mod tutorial` for details)");
+			}
 
-                message.reply(rejectMsg);
-                state.pending.delete(senderID);
-                return;
-            }
-        }
+			const timeAndDate = getCurrentDateTime();
 
-        const lowerBody = body.toLowerCase();
+			const confirmMsg = `Confirmision🧾\n` +
+				`📛Name: ${name}\n` +
+				`🪪Id: Secret\n` +
+				`🧾Uid: ${senderID}\n` +
+				`🗝️Role: Moderator\n` +
+				`💳Rbxl user: ${robloxUser}\n` +
+				`⏰Time & date: ${timeAndDate}\n` +
+				`----------------------------------\n` +
+				`Made by: Xdrg Moderator Service\n` +
+				`Sending to: Dev Xdragon\n\n` +
+				`👉 Reply to this message with ✅ to confirm or ❎ to cancel.`;
 
-        // ==========================================
-        // 2. ADMIN COMMANDS (! Prefix or Direct)
-        // ==========================================
-        if (lowerBody.startsWith('!add mod') || lowerBody.startsWith('add mod')) {
-            if (!isBotAdmin(senderID)) {
-                return message.reply("❌ Only Bot Admins can use this command.");
-            }
+			return message.reply(confirmMsg, (err, info) => {
+				if (err) return;
+				// Register for GoatBot native reply listener
+				global.GoatBot.onReply.set(info.messageID, {
+					commandName: "modsystem",
+					author: senderID,
+					name: name,
+					robloxUser: robloxUser,
+					time: timeAndDate
+				});
+			});
+		}
 
-            const parts = body.split(/\s+/);
-            const newLimit = parseInt(parts[2] || parts[3]);
+		return message.reply("❌ Command Syntax:\n• !mod apply\n• !mod tutorial\n• !mod add <number> (Admin)\n• !mod list (Admin)");
+	},
 
-            if (isNaN(newLimit) || newLimit < 1) {
-                return message.reply("❌ Usage: !add mod {number} (e.g., !add mod 5)");
-            }
+	// ==========================================
+	// GoatBot Native Reply Handler (✅ / ❎)
+	// ==========================================
+	onReply: async function ({ api, event, Reply, message }) {
+		const { author, name, robloxUser, time } = Reply;
+		const senderID = event.senderID;
+		const threadID = event.threadID;
+		const state = global.modSystemData;
 
-            state.maxMods = newLimit;
-            return message.reply(`✅ **System Update:** Required moderator limit adjusted to **${state.maxMods}**.`);
-        }
+		if (senderID !== author) {
+			return message.reply("❌ Only the original applicant can confirm or cancel this application.");
+		}
 
-        if (lowerBody === '!mod list' || lowerBody === 'mod list' || lowerBody === '!modsystem list') {
-            if (!isBotAdmin(senderID)) {
-                return message.reply("❌ Only Bot Admins can view the moderator list.");
-            }
+		const body = (event.body || "").trim();
 
-            if (state.moderators.size === 0) {
-                return message.reply(`🛡️ **Moderator List** (0/${state.maxMods}):\nNo active moderators registered yet.`);
-            }
+		if (body === "✅") {
+			if (state.moderators.size >= state.maxMods) {
+				message.reply(`❌ Sorry, maximum number of moderators (${state.maxMods}) has been reached.`);
+				global.GoatBot.onReply.delete(event.messageReply.messageID);
+				return;
+			}
 
-            let listMsg = `🛡️ **ACTIVE MODERATORS** (${state.moderators.size}/${state.maxMods})\n----------------------------------\n`;
-            let index = 1;
+			state.moderators.set(senderID, {
+				name: name,
+				robloxUser: robloxUser,
+				approvedAt: time
+			});
 
-            state.moderators.forEach((mod, uid) => {
-                listMsg += `${index}. 📛 Name: ${mod.name}\n` +
-                           `   💳 Roblox: ${mod.robloxUser}\n` +
-                           `   🧾 UID: ${uid}\n` +
-                           `   ⏰ Joined: ${mod.approvedAt}\n\n`;
-                index++;
-            });
+			const confirmMsg = `Account update [Confirmed] Congratulations you are now officially an moderator ${state.moderators.size}/${state.maxMods}\n` +
+				`📛Name: ${name}\n` +
+				`🪪Id: Secret\n` +
+				`🧾Uid: ${senderID}\n` +
+				`🗝️Role: Moderator\n` +
+				`💳Rbxl user: ${robloxUser}\n` +
+				`⏰Time & date: ${time}\n` +
+				`----------------------------------\n` +
+				`Made by: Xdrg Moderator Service\n` +
+				`Sending to: Dev Xdragon`;
 
-            return message.reply(listMsg.trim());
-        }
+			message.reply(confirmMsg);
 
-        // ==========================================
-        // 3. USER COMMANDS (~ or ! Prefix)
-        // ==========================================
-        if (lowerBody === '~mod tutorial' || lowerBody === '!mod tutorial') {
-            const tutorialMsg = `📖 **MODERATOR APPLICATION TUTORIAL**\n` +
-                                `----------------------------------\n` +
-                                `To apply for Moderator, send this exact format:\n\n` +
-                                `~mod apply\n` +
-                                `Name:{Your Name}\n` +
-                                `Id:Secret\n` +
-                                `Roblox username:{Your Roblox Username}\n\n` +
-                                `📌 **Example:**\n` +
-                                `~mod apply\n` +
-                                `Name:Alex\n` +
-                                `Id:Secret\n` +
-                                `Roblox username:AlexPlayz123\n\n` +
-                                `----------------------------------\n` +
-                                `⚠️ Reply with ✅ to confirm or ❎ to cancel when prompted.`;
+			api.changeNickname(`[Moderator🔨] ${name}`, threadID, senderID, (err) => {
+				if (err) console.error("Could not change nickname:", err);
+			});
 
-            return message.reply(tutorialMsg);
-        }
+			global.GoatBot.onReply.delete(event.messageReply.messageID);
+			return;
+		}
 
-        if (lowerBody.startsWith('~mod apply') || lowerBody.startsWith('!mod apply')) {
-            if (state.moderators.size >= state.maxMods) {
-                return message.reply(`❌ Application closed! Maximum limit of ${state.maxMods} moderators reached.`);
-            }
+		if (body === "❎") {
+			state.cooldowns.set(senderID, Date.now() + 300000);
 
-            if (state.moderators.has(senderID)) {
-                return message.reply("⚠️ You are already an official Moderator!");
-            }
+			const rejectMsg = `${name} try again in 5 minutes to cooldown the system/xdrg service system try type again👇\n` +
+				`------------------------------\n` +
+				`!mod apply\n` +
+				`Name:${name}\n` +
+				`Id:Secret\n` +
+				`Roblox username:${robloxUser}`;
 
-            if (state.cooldowns.has(senderID)) {
-                const expirationTime = state.cooldowns.get(senderID);
-                if (Date.now() < expirationTime) {
-                    const minutesLeft = Math.ceil((expirationTime - Date.now()) / 60000);
-                    return message.reply(`⏳ Please wait ${minutesLeft} minute(s) before applying again.`);
-                } else {
-                    state.cooldowns.delete(senderID);
-                }
-            }
-
-            const lines = body.split('\n');
-            let name = "Unknown";
-            let robloxUser = "Unknown";
-
-            lines.forEach(line => {
-                const lowerLine = line.toLowerCase();
-                if (lowerLine.startsWith('name:')) {
-                    name = line.substring(5).trim();
-                } else if (lowerLine.startsWith('roblox username:')) {
-                    robloxUser = line.substring(16).trim();
-                }
-            });
-
-            if (name === "Unknown" || robloxUser === "Unknown") {
-                return message.reply("❌ Invalid format! Type `~mod tutorial` for instructions.");
-            }
-
-            const timeAndDate = getCurrentDateTime();
-
-            state.pending.set(senderID, {
-                name: name,
-                robloxUser: robloxUser,
-                time: timeAndDate
-            });
-
-            const replyMsg = `Confirmision🧾\n` +
-                             `📛Name: ${name}\n` +
-                             `🪪Id: Secret\n` +
-                             `🧾Uid: ${senderID}\n` +
-                             `🗝️Role: Moderator\n` +
-                             `💳Rbxl user: ${robloxUser}\n` +
-                             `⏰Time & date: ${timeAndDate}\n` +
-                             `----------------------------------\n` +
-                             `Made by: Xdrg Moderator Service\n` +
-                             `Sending to: Dev Xdragon\n\n` +
-                             `Reply with ✅ to confirm or ❎ to cancel.`;
-
-            return message.reply(replyMsg);
-        }
-    }
+			message.reply(rejectMsg);
+			global.GoatBot.onReply.delete(event.messageReply.messageID);
+			return;
+		}
+	}
 };
