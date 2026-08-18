@@ -51,7 +51,7 @@ module.exports = {
 	config: {
 		name: "gag2stock",
 		aliases: ["gag2seen", "qr"],
-		version: "9.3",
+		version: "9.5",
 		author: "Dev Xdragon",
 		role: 1,
 		description: "Unified stock, synchronized last seen tracker, and dynamic QR insert with dynamic target alerts",
@@ -255,7 +255,7 @@ async function updateChannelData(isInit = false) {
 	for (const msg of messages) {
 		const upperText = msg.text.toUpperCase();
 		
-		if (upperText.includes('SHOP STOCK')) {
+		if (upperText.includes('STOCK')) {
 			latestStock = msg;
 			updateLastSeenDB(msg.text, msg.timestamp, false);
 		} else if (upperText.includes('WEATHER') || upperText.includes('MOON:') || upperText.includes('EVENT:')) {
@@ -296,9 +296,9 @@ function updateLastSeenDB(text, timestamp, addToCurrent = false) {
 	for (const line of lines) {
 		const upperLine = line.toUpperCase();
 		
-		if (upperLine.includes('SEED SHOP')) currentCategory = 'Seed 🌱';
-		else if (upperLine.includes('GEAR SHOP')) currentCategory = 'Gear ⚙️';
-		else if (upperLine.includes('CRATE SHOP')) currentCategory = 'Crate 📦';
+		if (upperLine.includes('SEED')) currentCategory = 'Seed 🌱';
+		else if (upperLine.includes('GEAR')) currentCategory = 'Gear ⚙️';
+		else if (upperLine.includes('CRATE') || upperLine.includes('PROP')) currentCategory = 'Crate 📦';
 		else if (upperLine.includes('MOON:') || upperLine.includes('EVENT:') || upperLine.includes('WEATHER UPDATE')) {
 			currentCategory = 'Moon & Weather 🌙';
 		}
@@ -436,17 +436,27 @@ function formatRawStockMsg(msg) {
 	if (isWeather) {
 		for (const line of lines) {
 			const cleanLine = line.replace(/🌦️/g, '').trim();
-			if (cleanLine && !cleanLine.match(/^\d+$/) && !cleanLine.includes('Copyright')) {
+			if (cleanLine && !cleanLine.match(/^\d+$/) && !cleanLine.toLowerCase().includes('copyright')) {
 				out += cleanLine + '\n';
 			}
 		}
 	} else {
-		for (let i = 1; i < lines.length; i++) {
+		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
-			if (line.includes('SHOP STOCK')) { out += `\n${line.trim()}\n`; continue; }
-			if (line.startsWith('-') || line.startsWith('>')) { out += '  ' + line + '\n'; continue; }
-			if (line.match(/^[🪴🌱⚙️📦🌿]/)) continue;
-			if (!line.includes('Copyright') && !line.startsWith('@')) out += line + '\n';
+
+			if (line.toLowerCase().includes('copyright') || line.startsWith('@')) continue;
+
+			if (line.toUpperCase().includes('STOCK') || line.toUpperCase().includes('SHOP')) {
+				out += `\n${line}\n`;
+				continue;
+			}
+
+			if (line.startsWith('-') || line.startsWith('>')) {
+				out += '  ' + line + '\n';
+				continue;
+			}
+
+			out += line + '\n';
 		}
 	}
 	const time = new Date().toLocaleString("en-US", { timeZone: TZ });
