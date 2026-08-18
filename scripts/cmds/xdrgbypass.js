@@ -4,12 +4,10 @@ function getCurrentDateTime() {
 	return new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
 }
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 module.exports = {
 	config: {
 		name: "bypass",
-		version: "2.0.0",
+		version: "2.1.0",
 		author: "Dev Xdragon",
 		role: 0,
 		category: "utility",
@@ -41,39 +39,9 @@ module.exports = {
 			const name = await usersData.getName(senderID);
 			const timeAndDate = getCurrentDateTime();
 
-			let pendingMsg;
-			try {
-				pendingMsg = await message.reply("📨Bypassing Delta Key 0%");
-			} catch (err) {
-				return console.error("Failed to send initial message", err);
-			}
-
-			if (!pendingMsg || !pendingMsg.messageID) return;
-
-			const editMsg = async (text) => {
-				return new Promise((resolve) => {
-					api.editMessage(text, pendingMsg.messageID, (err) => resolve(!err));
-				});
-			};
-
-			// Animation 0% -> 30% -> 50% -> 80% -> 100%
-			await sleep(1000);
-			await editMsg("📨Bypassing Delta Key 30%");
-
-			await sleep(1000);
-			await editMsg("📨Bypassing Delta Key 50%");
-
-			await sleep(1000);
-			await editMsg("📨Bypassing Delta Key 80%");
-
-			await sleep(1000);
-			await editMsg("📨Bypassing Delta Key 100%");
-
-			await sleep(800);
-
 			let deltaKey = "";
 
-			// Tawagin ang iyong Render API
+			// Kunin agad ang data mula sa API nang walang delay
 			try {
 				const apiUrl = `https://xdrg-bypasser-api.onrender.com/bypass?url=${encodeURIComponent(link)}`;
 				const response = await axios.get(apiUrl);
@@ -98,7 +66,8 @@ module.exports = {
 				`Instructions: type ~bypass {platorelay link} and bot send you the key!\n` +
 				`Get your link in: ${link}`;
 
-			await editMsg(finalMsg);
+			// Direktang i-send ang kumpletong mensahe
+			return message.reply(finalMsg);
 		}
 	}
 };
