@@ -1,7 +1,7 @@
 /**
  * Command: Moderator.js
  * Author: Dev Xdragon
- * Version: 2.3.0
+ * Version: 2.9.0
  */
 
 // Registered Moderator UIDs
@@ -23,28 +23,31 @@ module.exports = {
 	config: {
 		name: "moderator",
 		aliases: ["mod", "kick", "mute", "unmute", "suspend", "rankup", "autowarn", "warn", "unwarn", "purge"],
-		version: "2.3.0",
+		version: "2.9.0",
 		author: "Dev Xdragon",
 		role: 0,
-		usePrefix: false, // Allows command to trigger with '*' prefix
-		hasPrefix: false, // Compatibility flag for GoatBot / Mirai variants
-		description: "Moderation suite restricted to authorized Moderator UIDs using * prefix.",
+		usePrefix: false, // Bypasses system default to lock exclusively to '*'
+		hasPrefix: false,
+		description: "Moderation suite restricted strictly to the '*' prefix.",
 		category: "moderation",
-		guide: "*autowarn on/off\n*autowarn xdrg on/off\n*rankup xdrg on/off\n*kick @mention [reason]\n*mute @mention [reason] [duration]\n*suspend @mention [reason] [hours]"
+		guide: "Strict Prefix: *\nExamples:\n*autowarn xdrg on\n*rankup xdrg on\n*kick @mention"
 	},
 
 	onStart: async ({ api, event, args, message }) => {
 		try {
 			const { threadID, senderID, mentions, messageReply } = event;
+			const fullText = event.body ? event.body.trim() : "";
+
+			// STRICT REQUIREMENT: Only accept commands starting with '*'
+			if (!fullText.startsWith("*")) return;
 
 			// Enforce Moderator UID authorization
 			if (!MODERATOR_UIDS.has(String(senderID))) {
 				return message.reply("❌ Access Denied: Your UID is not registered in the Moderator list.");
 			}
 
-			const fullText = event.body ? event.body.trim() : "";
-			// Clean prefix characters (*, !, /, #)
-			const cleanText = fullText.replace(/^[!./#*]+/, '');
+			// Strip prefix '*'
+			const cleanText = fullText.slice(1).trim();
 			const parts = cleanText.split(/\s+/);
 			const inputCmd = parts[0] ? parts[0].toLowerCase() : "";
 
@@ -126,7 +129,7 @@ module.exports = {
 				// ==========================================
 				case "mute": {
 					if (!targetID) {
-						return message.reply("❌ Usage: *mute @mention [Reason] [duration (s/m/h/d/mo/y)]");
+						return message.reply("❌ Usage: *mute @mention [Reason] [duration]");
 					}
 
 					let durationMs = 15 * 60 * 1000;
@@ -235,7 +238,7 @@ module.exports = {
 				}
 
 				// ==========================================
-				// 7. AUTOWARN COMMAND (*autowarn on/off OR *autowarn xdrg on/off)
+				// 7. AUTOWARN COMMAND (*autowarn xdrg on/off)
 				// ==========================================
 				case "autowarn": {
 					let toggle = actionArgs[0] ? actionArgs[0].toLowerCase() : "";
@@ -309,7 +312,7 @@ function sendHelpMenu(message) {
 	const helpText = 
 		`🛡️ **MODERATOR COMMAND MENU** 🛡️\n` +
 		`━━━━━━━━━━━━━━━━━━━\n\n` +
-		`📌 **Prefix:** *\n` +
+		`📌 **Prefix:** Strictly *\n` +
 		`🔐 **Authorized UIDs Only**\n\n` +
 		`🔻 **AVAILABLE COMMANDS:**\n\n` +
 		`• ***moderator add {@mention}**\n` +
