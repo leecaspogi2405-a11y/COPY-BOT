@@ -1,7 +1,7 @@
 /**
  * Command: Moderator.js
  * Author: Dev Xdragon
- * Custom UID Permission Enforcement
+ * Version: 2.3.0
  */
 
 // Registered Moderator UIDs
@@ -23,34 +23,44 @@ module.exports = {
 	config: {
 		name: "moderator",
 		aliases: ["mod", "kick", "mute", "unmute", "suspend", "rankup", "autowarn", "warn", "unwarn", "purge"],
-		version: "2.1.0",
+		version: "2.3.0",
 		author: "Dev Xdragon",
-		role: 0, // Handled via internal UID check
-		description: "Moderation suite restricted to authorized Moderator UIDs.",
+		role: 0,
+		usePrefix: false, // Allows command to trigger with '*' prefix
+		hasPrefix: false, // Compatibility flag for GoatBot / Mirai variants
+		description: "Moderation suite restricted to authorized Moderator UIDs using * prefix.",
 		category: "moderation",
-		guide: "*moderator add @mention\n*kick @mention [reason]\n*mute @mention [reason] [duration]\n*unmute @mention\n*suspend @mention [reason] [hours]\n*rankup xdrg on/off\n*autowarn on/off\n*warn @mention [reason]\n*help moderator"
+		guide: "*autowarn on/off\n*autowarn xdrg on/off\n*rankup xdrg on/off\n*kick @mention [reason]\n*mute @mention [reason] [duration]\n*suspend @mention [reason] [hours]"
 	},
 
 	onStart: async ({ api, event, args, message }) => {
 		try {
 			const { threadID, senderID, mentions, messageReply } = event;
 
-			// Enforce strict Moderator UID authorization check
+			// Enforce Moderator UID authorization
 			if (!MODERATOR_UIDS.has(String(senderID))) {
 				return message.reply("❌ Access Denied: Your UID is not registered in the Moderator list.");
 			}
 
 			const fullText = event.body ? event.body.trim() : "";
-			const inputCmd = fullText.split(/\s+/)[0].toLowerCase().replace(/^\*/, '');
-			
-			let subCommand = (inputCmd === "moderator" || inputCmd === "mod") ? (args[0] || "").toLowerCase() : inputCmd;
-			let actionArgs = (inputCmd === "moderator" || inputCmd === "mod") ? args.slice(1) : args;
+			// Clean prefix characters (*, !, /, #)
+			const cleanText = fullText.replace(/^[!./#*]+/, '');
+			const parts = cleanText.split(/\s+/);
+			const inputCmd = parts[0] ? parts[0].toLowerCase() : "";
+
+			let subCommand = inputCmd;
+			let actionArgs = parts.slice(1);
+
+			if (inputCmd === "moderator" || inputCmd === "mod") {
+				subCommand = (parts[1] || "").toLowerCase();
+				actionArgs = parts.slice(2);
+			}
 
 			if (subCommand === "help" || (args[0] && args[0].toLowerCase() === "moderator" && subCommand === "help")) {
 				return sendHelpMenu(message);
 			}
 
-			// Target user extraction logic
+			// Extract target user
 			let targetID = null;
 			let targetName = "User";
 
@@ -64,7 +74,7 @@ module.exports = {
 			switch (subCommand) {
 
 				// ==========================================
-				// 1. ADD MODERATOR COMMAND (*moderator add @mention)
+				// 1. ADD MODERATOR (*moderator add @mention)
 				// ==========================================
 				case "add": {
 					if (!targetID) {
@@ -86,7 +96,7 @@ module.exports = {
 				}
 
 				// ==========================================
-				// 2. KICK COMMAND
+				// 2. KICK COMMAND (*kick @mention)
 				// ==========================================
 				case "kick": {
 					if (!targetID) {
@@ -112,7 +122,7 @@ module.exports = {
 				}
 
 				// ==========================================
-				// 3. MUTE COMMAND
+				// 3. MUTE COMMAND (*mute @mention)
 				// ==========================================
 				case "mute": {
 					if (!targetID) {
@@ -150,7 +160,7 @@ module.exports = {
 				}
 
 				// ==========================================
-				// 4. UNMUTE COMMAND
+				// 4. UNMUTE COMMAND (*unmute @mention)
 				// ==========================================
 				case "unmute": {
 					if (!targetID) {
@@ -166,7 +176,7 @@ module.exports = {
 				}
 
 				// ==========================================
-				// 5. SUSPEND COMMAND (Hours only)
+				// 5. SUSPEND COMMAND (*suspend @mention)
 				// ==========================================
 				case "suspend": {
 					if (!targetID) {
@@ -210,25 +220,31 @@ module.exports = {
 				// 6. RANKUP COMMAND (*rankup xdrg on/off)
 				// ==========================================
 				case "rankup": {
-					const subType = args[0] ? args[0].toLowerCase() : "";
-					const toggle = args[1] ? args[1].toLowerCase() : (args[0] ? args[0].toLowerCase() : "");
-
-					if (subType === "xdrg" || toggle === "on" || toggle === "off") {
-						const state = toggle === "on";
-						rankupSettings.set(threadID, state);
-						return message.reply(`📈 **RANKUP NOTIFICATIONS (XDRG):** ${state ? "ENABLED ✅" : "DISABLED ❌"}`);
+					let toggle = actionArgs[0] ? actionArgs[0].toLowerCase() : "";
+					if (toggle === "xdrg" && actionArgs[1]) {
+						toggle = actionArgs[1].toLowerCase();
 					}
 
-					return message.reply("❌ Usage: *rankup xdrg on OR *rankup xdrg off");
+					if (toggle !== "on" && toggle !== "off") {
+						return message.reply("❌ Usage: *rankup on/off OR *rankup xdrg on/off");
+					}
+
+					const state = toggle === "on";
+					rankupSettings.set(threadID, state);
+					return message.reply(`📈 **RANKUP NOTIFICATIONS (XDRG):** ${state ? "ENABLED ✅" : "DISABLED ❌"}`);
 				}
 
 				// ==========================================
-				// 7. AUTOWARN COMMAND (*autowarn on/off)
+				// 7. AUTOWARN COMMAND (*autowarn on/off OR *autowarn xdrg on/off)
 				// ==========================================
 				case "autowarn": {
-					const toggle = args[0] ? args[0].toLowerCase() : "";
+					let toggle = actionArgs[0] ? actionArgs[0].toLowerCase() : "";
+					if (toggle === "xdrg" && actionArgs[1]) {
+						toggle = actionArgs[1].toLowerCase();
+					}
+
 					if (toggle !== "on" && toggle !== "off") {
-						return message.reply("❌ Usage: *autowarn on OR *autowarn off");
+						return message.reply("❌ Usage: *autowarn on/off OR *autowarn xdrg on/off");
 					}
 
 					const state = toggle === "on";
@@ -237,7 +253,7 @@ module.exports = {
 				}
 
 				// ==========================================
-				// 8. WARN COMMAND
+				// 8. WARN COMMAND (*warn @mention)
 				// ==========================================
 				case "warn": {
 					if (!targetID) {
@@ -267,7 +283,7 @@ module.exports = {
 				}
 
 				// ==========================================
-				// 9. UNWARN COMMAND
+				// 9. UNWARN COMMAND (*unwarn @mention)
 				// ==========================================
 				case "unwarn": {
 					if (!targetID) {
@@ -298,18 +314,18 @@ function sendHelpMenu(message) {
 		`🔻 **AVAILABLE COMMANDS:**\n\n` +
 		`• ***moderator add {@mention}**\n` +
 		`  └ Register a user as a new Moderator.\n\n` +
+		`• ***autowarn [on/off]** or ***autowarn xdrg [on/off]**\n` +
+		`  └ Toggle auto-warn system state.\n\n` +
+		`• ***rankup xdrg [on/off]**\n` +
+		`  └ Toggle rankup notifications.\n\n` +
 		`• ***kick {@mention} [Reason]**\n` +
 		`  └ Remove a user from the group chat.\n\n` +
 		`• ***mute {@mention} [Reason] [Duration]**\n` +
-		`  └ Restrict user (Formats: 10s, 30m, 2h, 1d, 1mo, 1y).\n\n` +
+		`  └ Restrict user (Formats: 10s, 30m, 2h, 1d).\n\n` +
 		`• ***unmute {@mention}**\n` +
 		`  └ Lift mute restriction from a user.\n\n` +
 		`• ***suspend {@mention} [Reason] [Hours]**\n` +
 		`  └ Temporarily remove a user for X hours.\n\n` +
-		`• ***rankup xdrg [on/off]**\n` +
-		`  └ Toggle rankup level notifications.\n\n` +
-		`• ***autowarn [on/off]**\n` +
-		`  └ Toggle auto-warn system state.\n\n` +
 		`• ***warn {@mention} [Reason]**\n` +
 		`  └ Issue warning (3 warnings = auto kick).\n\n` +
 		`• ***unwarn {@mention}**\n` +
