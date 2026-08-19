@@ -1,80 +1,49 @@
 const fs = require("fs-extra");
 
+// Active prefix list
+const ALLOWED_PREFIXES = ["!", "~", "*"];
+
 module.exports = {
   config: {
     name: "prefix",
-    version: "2.6.0",
-    author: "Dev Xdragon",
+    version: "2.7.0",
+    author: "Jonell Magallanes / Dev Xdragon",
     countDown: 5,
     role: 0,
+    usePrefix: false, // Bypasses single prefix restriction
+    hasPrefix: false,
     shortDescription: {
-      en: "View or change bot prefix"
+      en: "View or manage multi-prefixes (!, ~, *)"
     },
     longDescription: {
-      en: "Check the current global/thread prefix or change it."
+      en: "Check active prefixes. Supports !, ~, and * simultaneously."
     },
     category: "config",
     guide: {
-      en: "{pn} - View prefix\n{pn} <new prefix> - Change prefix"
+      en: "!prefix | ~prefix | *prefix - View active prefixes\n!prefix <new prefix> - Change prefix"
     }
   },
 
-  onStart: async function ({ message, role, args, event, api, threadsData, usersData, getLang }) {
-    const { threadID, senderID, messageID } = event;
-    const prefix = (await threadsData.get(threadID)).prefix || global.GoatBot.config.prefix;
+  onStart: async function ({ message, role, args, event, api, threadsData }) {
+    const { threadID, senderID } = event;
+    const fullText = event.body ? event.body.trim() : "";
 
-    if (args.length === 0) {
+    // Check if message starts with !, ~, *, or plain "prefix"
+    const matchedPrefix = ALLOWED_PREFIXES.find(p => fullText.startsWith(p));
+    
+    let cleanText = fullText;
+    if (matchedPrefix) {
+      cleanText = fullText.slice(matchedPrefix.length).trim();
+    }
+    
+    const parts = cleanText.split(/\s+/);
+    if (!parts[0] || parts[0].toLowerCase() !== "prefix") return;
+
+    const cmdArgs = parts.slice(1);
+
+    if (cmdArgs.length === 0) {
       const botID = api.getCurrentUserID() || global.botID;
-      
-      // Fetch dynamic data
-      let name = "User";
-      try {
-        const uData = await usersData.get(senderID);
-        if (uData && uData.name) name = uData.name;
-      } catch (e) {}
-
-      const botName = global.GoatBot.config.botName || "Xdragon Bot";
-      const cmdCount = global.GoatBot.commands ? global.GoatBot.commands.size : "Unknown";
-
-      // Calculate Uptime
-      const uptime = process.uptime();
-      const hours = Math.floor(uptime / 3600);
-      const minutes = Math.floor((uptime % 3600) / 60);
-      const seconds = Math.floor(uptime % 60);
-      const uptimeString = `${hours}h ${minutes}m ${seconds}s`;
-
-      // Get Time and Date
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' });
-      const dateStr = now.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', year: 'numeric', month: 'long', day: 'numeric' });
-
-      const body = `╭── « 🤖 𝗕𝗢𝗧 𝗜𝗡𝗙𝗢 by Xdragon » ─⟡
-│
-│ 👋 Hello, ${name} my 
-│    currently prefix is [${prefix}]
-│
-│ 🤖 Bot    : ${botName}<-Xdragon Bot
-│ 📌 Prefix : ${prefix}
-│ 📊 Cmds   : ${cmdCount}
-│ ⏰ Uptime : ${uptimeString}
-│ 🕐 Time   : ${timeStr}
-│ 📅 Date   : ${dateStr}
-│
-│ 💡 To view commands:
-│    ${prefix}help
-│
-│ 👑 prefix:
-│    ${prefix}prefix [new prefix]
-│    (Bot Admin only)
-│   
-│  ℹ️ Declaimer: Prefix is working for all           
-│  users but if cmds only admin allowed 
-│
-│  🟢Made by Dev Xdragon (ask me    
-│   everything, I know Everything, ow no I    
-│   think the system taking by verify 😐)
-│
-╰──────────────────⟡`;
+      const body = `👋 Hey! My active prefixes in this chat are: [ ! ] [ ~ ] [ * ]\n\nTo see my commands, try typing !help, ~help, or *help ✨`;
       
       try {
         if (typeof api.shareContact === "function") {
@@ -86,15 +55,15 @@ module.exports = {
       }
     }
 
-    if (args[0] === 'reset') {
-      await threadsData.set(threadID, null, "data.prefix");
-      return message.reply(`Prefix has been reset to: ${global.GoatBot.config.prefix}`);
+    if (cmdArgs[0] === 'reset') {
+      await threadsData.set(threadID, ALLOWED_PREFIXES.join(" "), "data.prefix");
+      return message.reply(`✅ Prefixes reset to default set: [ ! ] [ ~ ] [ * ]`);
     }
 
-    const newPrefix = args[0];
-    const isGlobal = args[1] === "-g";
+    const newPrefix = cmdArgs[0];
+    const isGlobal = cmdArgs[1] === "-g";
 
-    if (isGlobal && role < 2) return message.reply("Only admins can change global prefix.");
+    if (isGlobal && role < 2) return message.reply("❌ Only bot admins can change global prefix.");
 
     const formSet = {
       commandName: "prefix",
@@ -103,7 +72,7 @@ module.exports = {
       setGlobal: isGlobal
     };
 
-    return message.reply(`React to confirm changing prefix to: ${newPrefix}`, (err, info) => {
+    return message.reply(`React to confirm changing main prefix to: [ ${newPrefix} ]`, (err, info) => {
       if (err) return;
       formSet.messageID = info.messageID;
       global.GoatBot.onReaction.set(info.messageID, formSet);
@@ -117,67 +86,21 @@ module.exports = {
     if (setGlobal) {
       global.GoatBot.config.prefix = newPrefix;
       fs.writeFileSync(global.client.dirConfig, JSON.stringify(global.GoatBot.config, null, 2));
-      return message.reply(`✅ Global prefix changed to: ${newPrefix}`);
+      return message.reply(`✅ Global prefix updated to: [ ${newPrefix} ]`);
     } else {
       await threadsData.set(event.threadID, newPrefix, "data.prefix");
-      return message.reply(`✅ Prefix changed to: ${newPrefix}`);
+      return message.reply(`✅ Prefix updated to: [ ${newPrefix} ]`);
     }
   },
 
-  onChat: async function ({ event, message, api, threadsData, usersData }) {
-    if (event.body && event.body.toLowerCase() === "prefix") {
-      const prefix = (await threadsData.get(event.threadID)).prefix || global.GoatBot.config.prefix;
+  onChat: async function ({ event, message, api, threadsData }) {
+    if (!event.body) return;
+    const text = event.body.trim().toLowerCase();
+
+    // Trigger on typing "prefix", "!prefix", "~prefix", or "*prefix"
+    if (text === "prefix" || ALLOWED_PREFIXES.some(p => text === `${p}prefix`)) {
       const botID = api.getCurrentUserID() || global.botID;
-
-      // Fetch dynamic data
-      let name = "User";
-      try {
-        const uData = await usersData.get(event.senderID);
-        if (uData && uData.name) name = uData.name;
-      } catch (e) {}
-
-      const botName = global.GoatBot.config.botName || "Xdragon Bot";
-      const cmdCount = global.GoatBot.commands ? global.GoatBot.commands.size : "Unknown";
-
-      // Calculate Uptime
-      const uptime = process.uptime();
-      const hours = Math.floor(uptime / 3600);
-      const minutes = Math.floor((uptime % 3600) / 60);
-      const seconds = Math.floor(uptime % 60);
-      const uptimeString = `${hours}h ${minutes}m ${seconds}s`;
-
-      // Get Time and Date
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' });
-      const dateStr = now.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', year: 'numeric', month: 'long', day: 'numeric' });
-
-      const body = `╭── « 🤖 𝗕𝗢𝗧 𝗜𝗡𝗙𝗢 by Xdragon » ─⟡
-│
-│ 👋 Hello, ${name} my 
-│    currently prefix is [${prefix}]
-│
-│ 🤖 Bot    : ${botName}<-Xdragon Bot
-│ 📌 Prefix : ${prefix}
-│ 📊 Cmds   : ${cmdCount}
-│ ⏰ Uptime : ${uptimeString}
-│ 🕐 Time   : ${timeStr}
-│ 📅 Date   : ${dateStr}
-│
-│ 💡 To view commands:
-│    ${prefix}help
-│
-│ 👑 prefix:
-│    ${prefix}prefix [new prefix]
-│    (Bot Admin only)
-│   
-│  ℹ️ Declaimer: Prefix is working for all           
-│  users but if cmds only admin allowed 
-│
-│  🟢Made by Dev Xdragon (ask me    
-│   everything, I know Everything, ow no I    
-│   think the system taking by verify 😐)
-│
-╰──────────────────⟡`;
+      const body = `👋 Hey there! My active prefixes are: [ ! ] [ ~ ] [ * ]\n\nTry using !help, ~help, or *help ✨`;
 
       try {
         if (typeof api.shareContact === "function") {
