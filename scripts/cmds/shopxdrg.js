@@ -1,116 +1,100 @@
 /**
  * Command: shop.js
- * Description: Complete Marketplace System (Sell, Buy, Trade, Offer, Approvals, Cancellations)
+ * Description: Marketplace system for GoatBot
  * Author: Dev Xdragon
- * Version: 1.0.0
+ * Version: 2.0.0
  */
 
-const fs = require("fs");
-const path = require("path");
+const listings = new Map();     // ID => Listing Data
+const buyRequests = new Map();  // ID => Request Data
+const tradeOffers = new Map();  // ID => Offer Data
 
-// Memory Storage for Listings and Transactions
-const listings = new Map(); // ID => Listing Object
-const buyRequests = new Map(); // ID => Buy Request Object
-const tradeOffers = new Map(); // ID => Offer Object
-
-let idCounter = 1000;
-
-function generateID(prefix) {
-	idCounter++;
-	return `${prefix}-${idCounter}`;
-}
-
-function parseKeyValues(text) {
+function parseFields(text) {
 	const lines = text.split("\n");
-	const data = {};
+	const fields = {};
 	for (const line of lines) {
-		const colonIndex = line.indexOf(":");
-		if (colonIndex !== -1) {
-			const key = line.slice(0, colonIndex).trim().toLowerCase();
-			const value = line.slice(colonIndex + 1).trim();
-			data[key] = value;
+		const idx = line.indexOf(":");
+		if (idx !== -1) {
+			const key = line.slice(0, idx).trim().toLowerCase();
+			const val = line.slice(idx + 1).trim();
+			fields[key] = val;
 		}
 	}
-	return data;
+	return fields;
 }
 
 module.exports = {
 	config: {
 		name: "shop",
 		aliases: ["sell", "buy", "trade", "offer", "cancel"],
-		version: "1.0.0",
+		version: "2.0.0",
 		author: "Dev Xdragon",
 		role: 0,
 		usePrefix: false,
 		hasPrefix: false,
-		description: "Marketplace system for selling, buying, trading, and offering items using ~ prefix.",
+		description: "Marketplace System (~sell, ~buy, ~trade, ~offer, ~cancel, ~seller approval)",
 		category: "economy",
-		guide: "Type ~shop tutorial for the complete usage guide."
+		guide: "Type ~shop tutorial for instructions."
 	},
 
 	onStart: async function ({ message }) {
-		return message.reply("🛒 Marketplace System Active! Type `~shop tutorial` to view the step-by-step guide.");
+		return message.reply("🛒 Marketplace System Active! Type `~shop tutorial` for full guidance.");
 	},
 
 	onChat: async function ({ api, event, message }) {
 		try {
 			if (!event.body) return;
-			const fullText = event.body.trim();
-
-			if (!fullText.startsWith("~")) return;
+			const body = event.body.trim();
+			if (!body.startsWith("~")) return;
 
 			const { threadID, senderID, messageReply, attachments } = event;
-			const lowerText = fullText.toLowerCase();
+			const lowerBody = body.toLowerCase();
 
 			// ==========================================
 			// 1. TUTORIAL COMMAND (~shop tutorial)
 			// ==========================================
-			if (lowerText === "~shop tutorial") {
-				const tutorialMenu = 
-					`🛒 **MARKETPLACE SYSTEM TUTORIAL** 🛒\n` +
-					`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-					`1️⃣ **SELL AN ITEM (` + `~sell` + `)**\n` +
-					`Attach/select a photo and use format:\n` +
+			if (lowerBody === "~shop tutorial") {
+				return message.reply(
+					`🛒 **SHOP SYSTEM TUTORIAL** 🛒\n` +
+					`━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+					`📌 **1. SELL AN ITEM** (Attach photo)\n` +
 					`~sell\n` +
 					`Price: $50 / ₱2,000 / 500 Robux\n` +
 					`Item Name: Dragon Sword\n` +
-					`Payment name: GCash / PayPal\n` +
+					`Id: DS-01\n` +
+					`Payment name: GCash\n` +
 					`Payment number: 09123456789\n\n` +
 
-					`2️⃣ **BUY AN ITEM (` + `~buy` + `)**\n` +
-					`Reply to a sell post or specify ID:\n` +
+					`📌 **2. BUY AN ITEM** (Reply to sell post or specify ID)\n` +
 					`~buy\n` +
 					`Item name: Dragon Sword\n` +
-					`Id: S-1001\n\n` +
+					`Id: DS-01\n\n` +
 
-					`3️⃣ **TRADE AN ITEM (` + `~trade` + `)**\n` +
-					`Create a open trade listing:\n` +
+					`📌 **3. TRADE AN ITEM**\n` +
 					`~trade\n` +
-					`Item name: Shadow Wings\n\n` +
+					`Item name: Shadow Wings\n` +
+					`Id: SW-99\n\n` +
 
-					`4️⃣ **MAKE AN OFFER (` + `~offer` + `)**\n` +
-					`Reply to a trade/sell post:\n` +
+					`📌 **4. OFFER A TRADE** (Reply to trade post)\n` +
 					`~offer\n` +
-					`Item name: Golden Armor\n` +
-					`Id: T-1002\n\n` +
+					`Item name: Golden Shield\n` +
+					`Id: SW-99\n\n` +
 
-					`5️⃣ **SELLER/OWNER APPROVAL (` + `~seller approval` + `)**\n` +
-					`Reply to a buy or offer message with:\n` +
-					`✅ (To Accept) or ❎ (To Reject)\n\n` +
+					`📌 **5. CANCEL ACTIONS** (Reply to buy/trade post)\n` +
+					`~cancel buying\n` +
+					`~cancel trade\n\n` +
 
-					`6️⃣ **CANCEL ACTIONS**\n` +
-					`• Reply to a purchase with ` + `~cancel buying` + `\n` +
-					`• Reply to a trade with ` + `~cancel trade` + `\n` +
-					`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-				return message.reply(tutorialMenu);
+					`📌 **6. SELLER APPROVAL** (Reply to buy/offer request)\n` +
+					`~Seller approval\n` +
+					`or reply with: ✅ or ❎`
+				);
 			}
 
 			// ==========================================
 			// 2. SELL COMMAND (~sell)
 			// ==========================================
-			if (lowerText.startsWith("~sell")) {
+			if (lowerBody.startsWith("~sell")) {
 				let imageURL = null;
-
 				if (attachments && attachments.length > 0 && attachments[0].type === "photo") {
 					imageURL = attachments[0].url;
 				} else if (messageReply && messageReply.attachments && messageReply.attachments.length > 0 && messageReply.attachments[0].type === "photo") {
@@ -118,28 +102,33 @@ module.exports = {
 				}
 
 				if (!imageURL) {
-					return message.reply("❌ **Error:** Please attach or select a photo when listing an item to sell.");
+					return message.reply("❌ **Error:** Please attach or select a photo when using ~sell!");
 				}
 
-				const parsed = parseKeyValues(fullText);
-				const price = parsed["price"];
-				const itemName = parsed["item name"];
-				const paymentName = parsed["payment name"];
-				const paymentNumber = parsed["payment number"];
-				const customID = parsed["id"] || generateID("S");
+				const fields = parseFields(body);
+				const price = fields["price"];
+				const itemName = fields["item name"] || fields["itemname"];
+				const customID = fields["id"];
+				const paymentName = fields["payment name"];
+				const paymentNumber = fields["payment number"];
 
-				if (!price || !itemName || !paymentName || !paymentNumber) {
+				if (!price || !itemName || !customID || !paymentName || !paymentNumber) {
 					return message.reply(
-						"❌ **Invalid Format!** Please include all required fields:\n\n" +
+						"❌ **Invalid Format!** Required layout:\n\n" +
 						"~sell\n" +
 						"Price: [$, ₱, or Robux]\n" +
 						"Item Name: [Name]\n" +
-						"Payment name: [Provider]\n" +
+						"Id: [Seller Defined ID]\n" +
+						"Payment name: [Provider Name]\n" +
 						"Payment number: [Account Number]"
 					);
 				}
 
-				const listingData = {
+				if (listings.has(customID)) {
+					return message.reply(`❌ **Error:** The ID "${customID}" is already used! Please choose a different Id:`);
+				}
+
+				listings.set(customID, {
 					id: customID,
 					sellerID,
 					itemName,
@@ -147,191 +136,181 @@ module.exports = {
 					paymentName,
 					paymentNumber,
 					imageURL,
-					type: "SELL",
-					status: "ACTIVE"
-				};
-
-				listings.set(customID, listingData);
-
-				return message.reply(
-					`✅ **ITEM LISTED FOR SALE**\n` +
-					`━━━━━━━━━━━━━━━━━━━\n` +
-					`📦 **Item:** ${itemName}\n` +
-					`🏷️ **ID:** ${customID}\n` +
-					`💰 **Price:** ${price}\n` +
-					`💳 **Payment Method:** ${paymentName}\n` +
-					`👤 **Seller ID:** ${senderID}\n` +
-					`━━━━━━━━━━━━━━━━━━━\n` +
-					`💡 *Buyers can reply with ~buy or ~offer to purchase!*`
-				);
-			}
-
-			// ==========================================
-			// 3. BUY COMMAND (~buy)
-			// ==========================================
-			if (lowerText.startsWith("~buy")) {
-				const parsed = parseKeyValues(fullText);
-				let targetID = parsed["id"];
-				let itemName = parsed["item name"];
-
-				// Auto-detect ID from message reply if not explicit
-				if (!targetID && messageReply) {
-					for (const [id, listing] of listings.entries()) {
-						if (messageReply.body && messageReply.body.includes(id)) {
-							targetID = id;
-							itemName = listing.itemName;
-							break;
-						}
-					}
-				}
-
-				if (!targetID) {
-					return message.reply("❌ **Error:** Please specify an `Id:` or reply directly to a valid sell post.");
-				}
-
-				const listing = listings.get(targetID);
-				if (!listing || listing.type !== "SELL") {
-					return message.reply(`❌ **Error:** No active sell listing found with ID: ${targetID}`);
-				}
-
-				if (listing.sellerID === senderID) {
-					return message.reply("❌ **Error:** You cannot buy your own item.");
-				}
-
-				const reqID = generateID("REQ");
-				buyRequests.set(reqID, {
-					reqID,
-					listingID: targetID,
-					buyerID: senderID,
-					sellerID: listing.sellerID,
-					itemName: itemName || listing.itemName,
-					status: "PENDING"
+					type: "SELL"
 				});
 
 				return message.reply(
-					`🛒 **BUY REQUEST SENT**\n` +
-					`━━━━━━━━━━━━━━━━━━━\n` +
-					`📦 **Item:** ${itemName || listing.itemName}\n` +
-					`🆔 **Listing ID:** ${targetID}\n` +
-					`📌 **Request ID:** ${reqID}\n` +
-					`👤 **Buyer:** <@${senderID}>\n` +
-					`━━━━━━━━━━━━━━━━━━━\n` +
-					`🔔 <@${listing.sellerID}> Please reply to this message with ✅ to approve or ❎ to reject.`
+					`✅ **ITEM LISTED FOR SALE**\n` +
+					`━━━━━━━━━━━━━━━━━━━━━━\n` +
+					`📦 **Item Name:** ${itemName}\n` +
+					`🆔 **Id:** ${customID}\n` +
+					`💰 **Price:** ${price}\n` +
+					`💳 **Payment name:** ${paymentName}\n` +
+					`🔢 **Payment number:** ${paymentNumber}\n` +
+					`👤 **Seller ID:** ${senderID}`
 				);
 			}
 
 			// ==========================================
-			// 4. TRADE COMMAND (~trade)
+			// 3. TRADE COMMAND (~trade)
 			// ==========================================
-			if (lowerText.startsWith("~trade")) {
-				const parsed = parseKeyValues(fullText);
-				const itemName = parsed["item name"];
-				const customID = parsed["id"] || generateID("T");
+			if (lowerBody.startsWith("~trade")) {
+				const fields = parseFields(body);
+				const itemName = fields["item name"] || fields["itemname"];
+				const customID = fields["id"];
 
-				if (!itemName) {
+				if (!itemName || !customID) {
 					return message.reply(
-						"❌ **Invalid Format!** Please specify the item name:\n\n" +
+						"❌ **Invalid Format!** Required layout:\n\n" +
 						"~trade\n" +
-						"Item name: [Your Item Name]"
+						"Item name: [Item Name]\n" +
+						"Id: [Custom Trade ID]"
 					);
+				}
+
+				if (listings.has(customID)) {
+					return message.reply(`❌ **Error:** The Trade ID "${customID}" is already in use!`);
 				}
 
 				listings.set(customID, {
 					id: customID,
 					sellerID,
 					itemName,
-					type: "TRADE",
-					status: "ACTIVE"
+					type: "TRADE"
 				});
 
 				return message.reply(
-					`🔄 **TRADE LISTING CREATED**\n` +
-					`━━━━━━━━━━━━━━━━━━━\n` +
-					`📦 **Item Available:** ${itemName}\n` +
-					`🏷️ **Trade ID:** ${customID}\n` +
-					`👤 **Owner:** <@${senderID}>\n` +
-					`━━━━━━━━━━━━━━━━━━━\n` +
-					`💡 *Interested traders reply with ~offer to propose a trade!*`
+					`🔄 **TRADE LISTED**\n` +
+					`━━━━━━━━━━━━━━━━━━━━━━\n` +
+					`📦 **Item name:** ${itemName}\n` +
+					`🆔 **Id:** ${customID}\n` +
+					`👤 **Owner:** ${senderID}`
+				);
+			}
+
+			// ==========================================
+			// 4. BUY COMMAND (~buy)
+			// ==========================================
+			if (lowerBody.startsWith("~buy")) {
+				const fields = parseFields(body);
+				let customID = fields["id"];
+				let itemName = fields["item name"] || fields["itemname"];
+
+				if (!customID && messageReply && messageReply.body) {
+					for (const [id] of listings.entries()) {
+						if (messageReply.body.includes(id)) {
+							customID = id;
+							break;
+						}
+					}
+				}
+
+				if (!customID) {
+					return message.reply(
+						"❌ **Invalid Format!** Reply to a sell post or provide:\n\n" +
+						"~buy\n" +
+						"Item name: [Item Name]\n" +
+						"Id: [Listing ID]"
+					);
+				}
+
+				const listing = listings.get(customID);
+				if (!listing || listing.type !== "SELL") {
+					return message.reply(`❌ **Error:** Active listing with Id "${customID}" not found.`);
+				}
+
+				buyRequests.set(customID, {
+					id: customID,
+					buyerID: senderID,
+					sellerID: listing.sellerID,
+					itemName: itemName || listing.itemName,
+					price: listing.price,
+					paymentName: listing.paymentName,
+					paymentNumber: listing.paymentNumber
+				});
+
+				return message.reply(
+					`🛒 **BUY REQUEST SENT**\n` +
+					`━━━━━━━━━━━━━━━━━━━━━━\n` +
+					`📦 **Item name:** ${itemName || listing.itemName}\n` +
+					`🆔 **Id:** ${customID}\n` +
+					`👤 **Buyer:** ${senderID}\n` +
+					`━━━━━━━━━━━━━━━━━━━━━━\n` +
+					`🔔 Seller: Reply with ~Seller approval or ✅/❎`
 				);
 			}
 
 			// ==========================================
 			// 5. OFFER COMMAND (~offer)
 			// ==========================================
-			if (lowerText.startsWith("~offer")) {
-				const parsed = parseKeyValues(fullText);
-				let targetID = parsed["id"];
-				const offeredItem = parsed["item name"];
+			if (lowerBody.startsWith("~offer")) {
+				const fields = parseFields(body);
+				let customID = fields["id"];
+				const offeredItem = fields["item name"] || fields["itemname"];
 
 				if (!offeredItem) {
-					return message.reply("❌ **Error:** Please specify your `Item name:` in your offer.");
+					return message.reply("❌ **Error:** Missing `Item name:` field!");
 				}
 
-				if (!targetID && messageReply) {
+				if (!customID && messageReply && messageReply.body) {
 					for (const [id] of listings.entries()) {
-						if (messageReply.body && messageReply.body.includes(id)) {
-							targetID = id;
+						if (messageReply.body.includes(id)) {
+							customID = id;
 							break;
 						}
 					}
 				}
 
-				if (!targetID) {
-					return message.reply("❌ **Error:** Please provide the target listing `Id:` or reply directly to a trade listing.");
+				if (!customID) {
+					return message.reply(
+						"❌ **Invalid Format!** Reply to a trade post or provide:\n\n" +
+						"~offer\n" +
+						"Item name: [Your Offered Item]\n" +
+						"Id: [Trade Listing ID]"
+					);
 				}
 
-				const listing = listings.get(targetID);
+				const listing = listings.get(customID);
 				if (!listing) {
-					return message.reply(`❌ **Error:** Listing ID ${targetID} does not exist.`);
+					return message.reply(`❌ **Error:** Trade listing with Id "${customID}" not found.`);
 				}
 
-				if (listing.sellerID === senderID) {
-					return message.reply("❌ **Error:** You cannot offer on your own listing.");
-				}
-
-				const offerID = generateID("OFF");
-				tradeOffers.set(offerID, {
-					offerID,
-					listingID: targetID,
+				tradeOffers.set(customID, {
+					id: customID,
 					offererID: senderID,
 					ownerID: listing.sellerID,
 					offeredItem,
-					targetItem: listing.itemName,
-					status: "PENDING"
+					targetItem: listing.itemName
 				});
 
 				return message.reply(
-					`🤝 **TRADE OFFER SUBMITTED**\n` +
-					`━━━━━━━━━━━━━━━━━━━\n` +
-					`🎯 **Target Item:** ${listing.itemName} (${targetID})\n` +
-					`🎁 **Offered Item:** ${offeredItem}\n` +
-					`📌 **Offer ID:** ${offerID}\n` +
-					`👤 **Offerer:** <@${senderID}>\n` +
-					`━━━━━━━━━━━━━━━━━━━\n` +
-					`🔔 <@${listing.sellerID}> Reply to this message with ✅ to accept or ❎ to reject.`
+					`🤝 **OFFER SUBMITTED**\n` +
+					`━━━━━━━━━━━━━━━━━━━━━━\n` +
+					`🎯 **Target Item:** ${listing.itemName}\n` +
+					`🎁 **Item name:** ${offeredItem}\n` +
+					`🆔 **Id:** ${customID}\n` +
+					`👤 **Offerer:** ${senderID}\n` +
+					`━━━━━━━━━━━━━━━━━━━━━━\n` +
+					`🔔 Owner: Reply with ~Seller approval or ✅/❎`
 				);
 			}
 
 			// ==========================================
-			// 6. CANCEL TRADE COMMAND (~cancel trade)
+			// 6. CANCEL TRADE (~cancel trade)
 			// ==========================================
-			if (lowerText.startsWith("~cancel trade")) {
-				let targetID = null;
+			if (lowerBody.startsWith("~cancel trade")) {
+				let targetID = parseFields(body)["id"];
 
-				// Parse ID if provided directly or from reply
-				const parts = fullText.split(/\s+/);
-				if (parts.length > 2) targetID = parts[2];
-
-				if (!targetID && messageReply) {
-					for (const [id, offer] of tradeOffers.entries()) {
-						if (messageReply.body && messageReply.body.includes(id)) {
+				if (!targetID && messageReply && messageReply.body) {
+					for (const [id] of listings.entries()) {
+						if (messageReply.body.includes(id)) {
 							targetID = id;
 							break;
 						}
 					}
 					if (!targetID) {
-						for (const [id] of listings.entries()) {
-							if (messageReply.body && messageReply.body.includes(id)) {
+						for (const [id] of tradeOffers.entries()) {
+							if (messageReply.body.includes(id)) {
 								targetID = id;
 								break;
 							}
@@ -340,108 +319,85 @@ module.exports = {
 				}
 
 				if (!targetID) {
-					return message.reply("❌ **Error:** Specify an ID or reply to the trade offer message.");
+					return message.reply("❌ **Error:** Reply to the target trade message or provide `Id:`");
 				}
 
-				if (tradeOffers.has(targetID)) tradeOffers.delete(targetID);
-				if (listings.has(targetID)) listings.delete(targetID);
+				tradeOffers.delete(targetID);
+				listings.delete(targetID);
 
 				return message.reply(`${targetID} Cancelled`);
 			}
 
 			// ==========================================
-			// 7. CANCEL BUYING COMMAND (~cancel buying)
+			// 7. CANCEL BUYING (~cancel buying)
 			// ==========================================
-			if (lowerText.startsWith("~cancel buying")) {
-				let targetID = null;
+			if (lowerBody.startsWith("~cancel buying")) {
+				let targetID = parseFields(body)["id"];
 
-				const parts = fullText.split(/\s+/);
-				if (parts.length > 2) targetID = parts[2];
-
-				if (!targetID && messageReply) {
+				if (!targetID && messageReply && messageReply.body) {
 					for (const [id] of buyRequests.entries()) {
-						if (messageReply.body && messageReply.body.includes(id)) {
+						if (messageReply.body.includes(id)) {
 							targetID = id;
 							break;
-						}
-					}
-					if (!targetID) {
-						for (const [id] of listings.entries()) {
-							if (messageReply.body && messageReply.body.includes(id)) {
-								targetID = id;
-								break;
-							}
 						}
 					}
 				}
 
 				if (!targetID) {
-					return message.reply("❌ **Error:** Specify an ID or reply to the buying request message.");
+					return message.reply("❌ **Error:** Reply to the buy request message or provide `Id:`");
 				}
 
-				if (buyRequests.has(targetID)) buyRequests.delete(targetID);
+				buyRequests.delete(targetID);
 
 				return message.reply(`${targetID} Cancelled`);
 			}
 
 			// ==========================================
-			// 8. SELLER APPROVAL (Reply ✅ or ❎)
+			// 8. SELLER APPROVAL (~Seller approval / ✅ / ❎)
 			// ==========================================
-			if (messageReply && (fullText === "✅" || fullText === "❎" || lowerText.startsWith("~seller approval"))) {
-				const isApproved = fullText.includes("✅") || lowerText.includes("approve");
+			if (messageReply && (body === "✅" || body === "❎" || lowerBody.startsWith("~seller approval"))) {
+				const isApproved = body === "✅" || lowerBody.includes("✅") || lowerBody.includes("approval");
 				let handled = false;
 
-				// Check Buy Requests
-				for (const [reqID, req] of buyRequests.entries()) {
-					if (messageReply.body && messageReply.body.includes(reqID)) {
-						if (req.sellerID !== senderID) {
-							return message.reply("❌ **Permission Denied:** Only the seller can approve or reject this purchase.");
-						}
-
+				// Process Buy Request Approval
+				for (const [id, req] of buyRequests.entries()) {
+					if (messageReply.body && messageReply.body.includes(id)) {
 						if (isApproved) {
-							const listing = listings.get(req.listingID);
-							req.status = "APPROVED";
-							return message.reply(
-								`✅ **PURCHASE APPROVED!**\n` +
-								`━━━━━━━━━━━━━━━━━━━\n` +
-								`👤 **Buyer:** <@${req.buyerID}>\n` +
-								`📦 **Item:** ${req.itemName}\n` +
-								`💳 **Payment Provider:** ${listing ? listing.paymentName : "N/A"}\n` +
-								`🔢 **Payment Number:** ${listing ? listing.paymentNumber : "N/A"}\n` +
-								`━━━━━━━━━━━━━━━━━━━\n` +
-								`🎉 Please proceed with sending payment to complete the transaction.`
+							message.reply(
+								`✅ **PURCHASE APPROVED**\n` +
+								`━━━━━━━━━━━━━━━━━━━━━━\n` +
+								`📦 **Item Name:** ${req.itemName}\n` +
+								`🆔 **Id:** ${req.id}\n` +
+								`💰 **Price:** ${req.price}\n` +
+								`💳 **Payment name:** ${req.paymentName}\n` +
+								`🔢 **Payment number:** ${req.paymentNumber}\n` +
+								`👤 **Buyer:** ${req.buyerID}`
 							);
 						} else {
-							req.status = "REJECTED";
-							return message.reply(`❎ **PURCHASE REJECTED!** The seller declined the buy request.`);
+							message.reply(`❎ **PURCHASE DECLINED**\nPurchase for ${id} was rejected.`);
 						}
+						buyRequests.delete(id);
 						handled = true;
 						break;
 					}
 				}
 
-				// Check Trade Offers
+				// Process Trade Offer Approval
 				if (!handled) {
-					for (const [offerID, offer] of tradeOffers.entries()) {
-						if (messageReply.body && messageReply.body.includes(offerID)) {
-							if (offer.ownerID !== senderID) {
-								return message.reply("❌ **Permission Denied:** Only the owner can approve or reject this trade.");
-							}
-
+					for (const [id, offer] of tradeOffers.entries()) {
+						if (messageReply.body && messageReply.body.includes(id)) {
 							if (isApproved) {
-								offer.status = "APPROVED";
-								return message.reply(
-									`✅ **TRADE APPROVED!**\n` +
-									`━━━━━━━━━━━━━━━━━━━\n` +
-									`👤 **Trader 1:** <@${offer.ownerID}> (${offer.targetItem})\n` +
-									`👤 **Trader 2:** <@${offer.offererID}> (${offer.offeredItem})\n` +
-									`━━━━━━━━━━━━━━━━━━━\n` +
-									`🎉 Trade deal finalized successfully!`
+								message.reply(
+									`✅ **TRADE APPROVED**\n` +
+									`━━━━━━━━━━━━━━━━━━━━━━\n` +
+									`🆔 **Id:** ${offer.id}\n` +
+									`📦 **Item 1:** ${offer.targetItem}\n` +
+									`📦 **Item 2:** ${offer.offeredItem}`
 								);
 							} else {
-								offer.status = "REJECTED";
-								return message.reply(`❎ **TRADE REJECTED!** The owner declined this offer.`);
+								message.reply(`❎ **TRADE DECLINED**\nTrade for ${id} was rejected.`);
 							}
+							tradeOffers.delete(id);
 							handled = true;
 							break;
 						}
@@ -453,8 +409,8 @@ module.exports = {
 				}
 			}
 
-		} catch (error) {
-			console.error("[Shop.js Error]:", error);
+		} catch (err) {
+			console.error("[Shop Module Error]:", err);
 		}
 	}
 };
