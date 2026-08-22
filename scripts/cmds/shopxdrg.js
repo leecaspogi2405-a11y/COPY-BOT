@@ -2,7 +2,7 @@
  * Command: shop.js
  * Description: Marketplace system for GoatBot
  * Author: Dev Xdragon
- * Version: 4.0.0
+ * Version: 5.0.0
  */
 
 const listings = new Map();     // ID => Listing Data
@@ -23,30 +23,6 @@ function parseFields(text) {
 	return fields;
 }
 
-function extractImageUrl(event) {
-	const { attachments, messageReply } = event;
-
-	// Check direct attachments in current message
-	if (attachments && attachments.length > 0) {
-		for (const att of attachments) {
-			if (att.type === "photo" || att.type === "animated_image") {
-				return att.url || att.largePreviewUrl || att.previewUrl || null;
-			}
-		}
-	}
-
-	// Check attachments in replied message
-	if (messageReply && messageReply.attachments && messageReply.attachments.length > 0) {
-		for (const att of messageReply.attachments) {
-			if (att.type === "photo" || att.type === "animated_image") {
-				return att.url || att.largePreviewUrl || att.previewUrl || null;
-			}
-		}
-	}
-
-	return null;
-}
-
 async function handleMarketplace({ event, message }) {
 	if (!event.body) return;
 	const body = event.body.trim();
@@ -60,13 +36,13 @@ async function handleMarketplace({ event, message }) {
 		return message.reply(
 			`🛒 **SHOP SYSTEM TUTORIAL** 🛒\n` +
 			`━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-			`📌 **1. SELL AN ITEM** (Attach or reply to photo)\n` +
+			`📌 **1. SELL AN ITEM**\n` +
 			`~sell\n` +
 			`Price: ₱500\n` +
 			`Item Name: Kraken\n` +
 			`Id: Xd-01\n` +
-			`Payment Name: Andrea\n` +
-			`Payment Number: 09123456778\n\n` +
+			`Payment Name: John Doe\n` +
+			`Payment Number: 09123456789\n\n` +
 
 			`📌 **2. BUY AN ITEM** (Reply to sell post)\n` +
 			`~buy\n` +
@@ -97,12 +73,6 @@ async function handleMarketplace({ event, message }) {
 	// 2. SELL COMMAND (~sell)
 	// ==========================================
 	if (lowerBody.startsWith("~sell") || lowerBody.startsWith("sell")) {
-		const imageURL = extractImageUrl(event);
-
-		if (!imageURL) {
-			return message.reply("❌ **Error:** No image detected! Please reply directly to a photo or attach a photo with `~sell`.");
-		}
-
 		const fields = parseFields(body);
 		const price = fields["price"];
 		const itemName = fields["item name"] || fields["itemname"];
@@ -117,8 +87,8 @@ async function handleMarketplace({ event, message }) {
 				"Price: ₱500\n" +
 				"Item Name: Kraken\n" +
 				"Id: Xd-01\n" +
-				"Payment Name: Andrea\n" +
-				"Payment Number: 09123456778"
+				"Payment Name: John Doe\n" +
+				"Payment Number: 09123456789"
 			);
 		}
 
@@ -133,7 +103,6 @@ async function handleMarketplace({ event, message }) {
 			price,
 			paymentName,
 			paymentNumber,
-			imageURL,
 			type: "SELL"
 		});
 
@@ -410,7 +379,7 @@ module.exports = {
 	config: {
 		name: "shop",
 		aliases: ["sell", "~sell", "buy", "~buy", "trade", "~trade", "offer", "~offer", "cancel", "~cancel", "seller", "~seller"],
-		version: "4.0.0",
+		version: "5.0.0",
 		author: "Dev Xdragon",
 		role: 0,
 		usePrefix: false,
