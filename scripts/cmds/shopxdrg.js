@@ -2,7 +2,7 @@
  * Command: shop.js
  * Description: Marketplace system for GoatBot
  * Author: Dev Xdragon
- * Version: 3.0.0
+ * Version: 4.0.0
  */
 
 const listings = new Map();     // ID => Listing Data
@@ -23,11 +23,35 @@ function parseFields(text) {
 	return fields;
 }
 
-function handleCommandLogic({ event, message }) {
+function extractImageUrl(event) {
+	const { attachments, messageReply } = event;
+
+	// Check direct attachments in current message
+	if (attachments && attachments.length > 0) {
+		for (const att of attachments) {
+			if (att.type === "photo" || att.type === "animated_image") {
+				return att.url || att.largePreviewUrl || att.previewUrl || null;
+			}
+		}
+	}
+
+	// Check attachments in replied message
+	if (messageReply && messageReply.attachments && messageReply.attachments.length > 0) {
+		for (const att of messageReply.attachments) {
+			if (att.type === "photo" || att.type === "animated_image") {
+				return att.url || att.largePreviewUrl || att.previewUrl || null;
+			}
+		}
+	}
+
+	return null;
+}
+
+async function handleMarketplace({ event, message }) {
 	if (!event.body) return;
 	const body = event.body.trim();
 	const lowerBody = body.toLowerCase();
-	const { senderID, messageReply, attachments } = event;
+	const { senderID, messageReply } = event;
 
 	// ==========================================
 	// 1. TUTORIAL COMMAND (~shop tutorial)
@@ -72,22 +96,11 @@ function handleCommandLogic({ event, message }) {
 	// ==========================================
 	// 2. SELL COMMAND (~sell)
 	// ==========================================
-	if (lowerBody.startsWith("~sell")) {
-		let imageURL = null;
-
-		// Check direct attachments
-		if (attachments && attachments.length > 0) {
-			const img = attachments.find(a => a.type === "photo");
-			if (img) imageURL = img.url;
-		}
-		// Check replied message attachments
-		if (!imageURL && messageReply && messageReply.attachments && messageReply.attachments.length > 0) {
-			const img = messageReply.attachments.find(a => a.type === "photo");
-			if (img) imageURL = img.url;
-		}
+	if (lowerBody.startsWith("~sell") || lowerBody.startsWith("sell")) {
+		const imageURL = extractImageUrl(event);
 
 		if (!imageURL) {
-			return message.reply("❌ **Error:** Select or attach a photo when sending ~sell!");
+			return message.reply("❌ **Error:** No image detected! Please reply directly to a photo or attach a photo with `~sell`.");
 		}
 
 		const fields = parseFields(body);
@@ -110,7 +123,7 @@ function handleCommandLogic({ event, message }) {
 		}
 
 		if (listings.has(customID)) {
-			return message.reply(`❌ **Error:** The Id "${customID}" is already in use! Choose a different Id.`);
+			return message.reply(`❌ **Error:** The Id "${customID}" is already in use! Please choose a unique Id.`);
 		}
 
 		listings.set(customID, {
@@ -139,7 +152,7 @@ function handleCommandLogic({ event, message }) {
 	// ==========================================
 	// 3. TRADE COMMAND (~trade)
 	// ==========================================
-	if (lowerBody.startsWith("~trade")) {
+	if (lowerBody.startsWith("~trade") || lowerBody.startsWith("trade")) {
 		const fields = parseFields(body);
 		const itemName = fields["item name"] || fields["itemname"];
 		const customID = fields["id"];
@@ -176,7 +189,7 @@ function handleCommandLogic({ event, message }) {
 	// ==========================================
 	// 4. BUY COMMAND (~buy)
 	// ==========================================
-	if (lowerBody.startsWith("~buy")) {
+	if (lowerBody.startsWith("~buy") || lowerBody.startsWith("buy")) {
 		const fields = parseFields(body);
 		let customID = fields["id"];
 		let itemName = fields["item name"] || fields["itemname"];
@@ -228,7 +241,7 @@ function handleCommandLogic({ event, message }) {
 	// ==========================================
 	// 5. OFFER COMMAND (~offer)
 	// ==========================================
-	if (lowerBody.startsWith("~offer")) {
+	if (lowerBody.startsWith("~offer") || lowerBody.startsWith("offer")) {
 		const fields = parseFields(body);
 		let customID = fields["id"];
 		const offeredItem = fields["item name"] || fields["itemname"];
@@ -283,7 +296,7 @@ function handleCommandLogic({ event, message }) {
 	// ==========================================
 	// 6. CANCEL TRADE (~cancel trade)
 	// ==========================================
-	if (lowerBody.startsWith("~cancel trade")) {
+	if (lowerBody.startsWith("~cancel trade") || lowerBody.startsWith("cancel trade")) {
 		let targetID = parseFields(body)["id"];
 
 		if (!targetID && messageReply && messageReply.body) {
@@ -316,7 +329,7 @@ function handleCommandLogic({ event, message }) {
 	// ==========================================
 	// 7. CANCEL BUYING (~cancel buying)
 	// ==========================================
-	if (lowerBody.startsWith("~cancel buying")) {
+	if (lowerBody.startsWith("~cancel buying") || lowerBody.startsWith("cancel buying")) {
 		let targetID = parseFields(body)["id"];
 
 		if (!targetID && messageReply && messageReply.body) {
@@ -340,7 +353,7 @@ function handleCommandLogic({ event, message }) {
 	// ==========================================
 	// 8. SELLER APPROVAL (~Seller approval / ✅ / ❎)
 	// ==========================================
-	if (messageReply && (body === "✅" || body === "❎" || lowerBody.startsWith("~seller approval"))) {
+	if (messageReply && (body === "✅" || body === "❎" || lowerBody.includes("seller approval"))) {
 		const isApproved = body === "✅" || lowerBody.includes("✅") || lowerBody.includes("approval");
 		let handled = false;
 
@@ -396,8 +409,8 @@ function handleCommandLogic({ event, message }) {
 module.exports = {
 	config: {
 		name: "shop",
-		aliases: ["sell", "buy", "trade", "offer", "cancel", "seller"],
-		version: "3.0.0",
+		aliases: ["sell", "~sell", "buy", "~buy", "trade", "~trade", "offer", "~offer", "cancel", "~cancel", "seller", "~seller"],
+		version: "4.0.0",
 		author: "Dev Xdragon",
 		role: 0,
 		usePrefix: false,
@@ -408,10 +421,10 @@ module.exports = {
 	},
 
 	onStart: async function (context) {
-		return handleCommandLogic(context);
+		return handleMarketplace(context);
 	},
 
 	onChat: async function (context) {
-		return handleCommandLogic(context);
+		return handleMarketplace(context);
 	}
 };
