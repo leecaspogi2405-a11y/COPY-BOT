@@ -2,7 +2,7 @@
  * Command: eggpredict.js
  * Description: Automated Egg Spawn Predictor with !predict on/off toggle for GoatBot
  * Author: Dev Xdragon
- * Version: 2.0.0
+ * Version: 3.0.0
  */
 
 const RESET_PERIOD_SECONDS = 300;
@@ -10,26 +10,31 @@ const RESET_PERIOD_SECONDS = 300;
 // Sample Game Data (Modify this object with your actual egg rates/areas)
 const DEFAULT_GAME_DATA = {
 	Eggs: {
-		"Volcano Egg": { D: "Volcano Egg", R: "Common" },
-		"Magma Egg": { D: "Magma Egg", R: "Rare" },
-		"Obsidian Egg": { D: "Obsidian Egg", R: "Legendary" },
-		"Ice Egg": { D: "Ice Egg", R: "Common" },
-		"Glacier Egg": { D: "Glacier Egg", R: "Legendary" }
+		"Ice Dragon": { D: "Snow Biome", R: "Enternal" },
+		"Lava Dragon": { D: "Volcano Biome", R: "Enternal" },
+		"El Maja": { D: "Abyss Ocean Biome", R: "Enternal" },
+		"Mosasasaurus": { D: "Prehistoric Biome", R: "Enternal" },
+		"Unicorn": { D: "Cosmic Biome", R: "Divine" }
+        "Kitsune": { D: "Blossom Biome", R: "Divine" }
+        "Warden": { D: "Titan Temple Biome", R: "Secret" }
+
 	},
 	Areas: {
 		"Volcano": {
-			Slots: ["Slot1", "Slot2", "Slot3"],
+			Slots: ["Slot1", "Slot2", "Slot3", "Slot4", "Slot5"],
 			DT: [
-				["Volcano Egg", 70],
-				["Magma Egg", 25],
-				["Obsidian Egg", 5]
+				["Snow Biome", 40],
+				["Volcano Biome", 20],
+				["Abyss Ocean Biome", 20],
+                ["Prehistoric Biome", 10],
+                ["Cosmic Biome", 10]
 			]
 		},
 		"Tundra": {
 			Slots: ["Slot1", "Slot2"],
 			DT: [
-				["Ice Egg", 80],
-				["Glacier Egg", 20]
+				["Blossom Biome", 80],
+				["Titan Temple Biome", 20]
 			]
 		}
 	}
