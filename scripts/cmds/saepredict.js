@@ -218,7 +218,7 @@ module.exports = {
 		aliases: ["eggpredict"],
 		version: "2.0.0",
 		author: "Dev Xdragon",
-		role: 0,
+		role: 2,
 		usePrefix: false,
 		hasPrefix: false,
 		description: "Automated 300-second periodic egg spawn prediction broadcast.",
