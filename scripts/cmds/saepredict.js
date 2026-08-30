@@ -7,34 +7,33 @@
 
 const RESET_PERIOD_SECONDS = 300;
 
-// Sample Game Data (Modify this object with your actual egg rates/areas)
+// Game Data Mapping
 const DEFAULT_GAME_DATA = {
 	Eggs: {
-		"Ice Dragon": { D: "Snow Biome", R: "Enternal" },
-		"Lava Dragon": { D: "Volcano Biome", R: "Enternal" },
-		"El Maja": { D: "Abyss Ocean Biome", R: "Enternal" },
-		"Mosasasaurus": { D: "Prehistoric Biome", R: "Enternal" },
-		"Unicorn": { D: "Cosmic Biome", R: "Divine" }
-        "Kitsune": { D: "Blossom Biome", R: "Divine" }
-        "Warden": { D: "Titan Temple Biome", R: "Secret" }
-
+		"Ice Dragon": { D: "Snow Biome", R: "Eternal" },
+		"Lava Dragon": { D: "Volcano Biome", R: "Eternal" },
+		"El Maja": { D: "Abyss Ocean Biome", R: "Eternal" },
+		"Mosasaurus": { D: "Prehistoric Biome", R: "Eternal" },
+		"Unicorn": { D: "Cosmic Biome", R: "Divine" },
+		"Kitsune": { D: "Blossom Biome", R: "Divine" },
+		"Warden": { D: "Titan Temple Biome", R: "Secret" }
 	},
 	Areas: {
-		"Volcano": {
+		"Enternal/Divine": {
 			Slots: ["Slot1", "Slot2", "Slot3", "Slot4", "Slot5"],
 			DT: [
-				["Snow Biome", 40],
-				["Volcano Biome", 20],
-				["Abyss Ocean Biome", 20],
-                ["Prehistoric Biome", 10],
-                ["Cosmic Biome", 10]
+				["Ice Dragon", 40],
+				["Lava Dragon", 20],
+				["El Maja", 20],
+				["Mosasaurus", 10],
+				["Unicorn", 10]
 			]
 		},
-		"Tundra": {
+		"Secret/Event": {
 			Slots: ["Slot1", "Slot2"],
 			DT: [
-				["Blossom Biome", 80],
-				["Titan Temple Biome", 20]
+				["Kitsune", 80],
+				["Warden", 20]
 			]
 		}
 	}
@@ -209,7 +208,7 @@ function sendBroadcast(api, threadID) {
 	for (const eggKey of allEggs) {
 		const res = predictor.predictSingleEgg(eggKey);
 		if (res) {
-			response += `🥚 **${res.displayName}** [${res.rarity}]\n`;
+			response += `🥚 **${eggKey}** (${res.displayName}) [${res.rarity}]\n`;
 			response += `⏳ ${res.nextSpawn}\n\n`;
 		}
 	}
@@ -221,7 +220,7 @@ module.exports = {
 	config: {
 		name: "predict",
 		aliases: ["eggpredict"],
-		version: "2.0.0",
+		version: "3.0.0",
 		author: "Dev Xdragon",
 		role: 2,
 		usePrefix: false,
@@ -239,7 +238,6 @@ module.exports = {
 		if (!event.body) return;
 		const fullText = event.body.trim();
 
-		// Check for prefix (!) commands
 		if (!fullText.toLowerCase().startsWith("!predict") && !fullText.toLowerCase().startsWith("!eggpredict")) {
 			return;
 		}
@@ -253,10 +251,8 @@ module.exports = {
 				return message.reply("ℹ️ Automated egg prediction updates are already **ENABLED** in this chat.");
 			}
 
-			// Broadcast initial predictions right away
 			sendBroadcast(api, threadID);
 
-			// Schedule interval every 300,000 ms (300 seconds)
 			const intervalId = setInterval(() => {
 				sendBroadcast(api, threadID);
 			}, RESET_PERIOD_SECONDS * 1000);
