@@ -5,7 +5,7 @@
  * Version: 3.0.0
  */
 
-const RESET_PERIOD_SECONDS = 300;
+const RESET_PERIOD_SECONDS = 1800;
 
 // Game Data Mapping
 const DEFAULT_GAME_DATA = {
@@ -225,13 +225,13 @@ module.exports = {
 		role: 2,
 		usePrefix: false,
 		hasPrefix: false,
-		description: "Automated 300-second periodic egg spawn prediction broadcast.",
+		description: "Automated 30-minutes periodic egg spawn prediction broadcast.",
 		category: "utility",
 		guide: "!predict on\n!predict off"
 	},
 
 	onStart: async function ({ message }) {
-		return message.reply("🥚 Use `!predict on` to enable automatic predictions every 300 seconds, or `!predict off` to stop.");
+		return message.reply("🥚 Use `!predict on` to enable automatic predictions every 30 minutes, or `!predict off` to stop.");
 	},
 
 	onChat: async function ({ api, event, message }) {
@@ -258,7 +258,7 @@ module.exports = {
 			}, RESET_PERIOD_SECONDS * 1000);
 
 			activePredictors.set(threadID, intervalId);
-			return message.reply("✅ **AUTOMATED PREDICTIONS STARTED**\nEgg spawn predictions will be posted automatically every 300 seconds.");
+			return message.reply("✅ **AUTOMATED PREDICTIONS STARTED**\nEgg spawn predictions will be posted automatically every 30 minutes.");
 
 		} else if (toggle === "off") {
 			if (!activePredictors.has(threadID)) {
