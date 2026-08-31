@@ -203,7 +203,7 @@ function sendBroadcast(api, threadID) {
 	const predictor = new Predictor(DEFAULT_GAME_DATA);
 	const allEggs = Object.keys(DEFAULT_GAME_DATA.Eggs);
 
-	let response = `🔮 **AUTOMATED EGG PREDICTIONS (300s UPDATE)** 🔮\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+	let response = `🔮 **AUTOMATED EGG PREDICTIONS (By Dev Xdragon)** 🔮\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
 	for (const eggKey of allEggs) {
 		const res = predictor.predictSingleEgg(eggKey);
